@@ -58,6 +58,19 @@ history**.
 
 ## Log
 
+### 2026-06-24 — Persistent IP label + README/repo refresh
+- **IP on panel:** the device IP now renders in the built-in 6x8 font at the
+  bottom-left **at all times** — on both `drawText()` and `clearDisplay()`, so it
+  survives a Clear. New `ipText` global + `drawIpLabel()` helper (called inside
+  the paged-draw loop). Boot draw moved to *after* Wi-Fi connects so the first
+  render already has the IP. Note: paged drawing reruns the draw block per page,
+  so the big font is re-selected each page (the label switches to the small font).
+- **README:** Setup section rewritten for `secrets.h` (no more editing creds in
+  the `.ino`) and documents both PlatformIO and Arduino IDE flashing.
+- **Repo:** project is now an actual git repo, pushed to
+  https://github.com/jdburgie/esp32-epaper-web (private). The earlier note that
+  this repo already existed was wrong — created it fresh today.
+
 ### 2026-06-24 — Multi-line + clear-screen, moved to PlatformIO
 - **Multi-line text:** swapped the single-line `<input>` for a `<textarea rows=4>`
   (Enter = newline), bumped `maxlength` 80→120. `drawText()` now counts `\n`,

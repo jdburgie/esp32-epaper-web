@@ -43,17 +43,31 @@ GxEPD2_BW<GxEPD2_213_BN, GxEPD2_213_BN::HEIGHT> display(
 AsyncWebServer server(80);
 
 String currentText = "Hello World!";
+String ipText      = "";  // set once Wi-Fi connects; shown bottom-left always
 
 // Line spacing for FreeSansBold12pt7b (~17px glyphs + breathing room).
 #define LINE_HEIGHT 22
 
-// ---- Blank the panel to all-white ----
+// ---- Draw the IP in the built-in 6x8 font, bottom-left corner ----
+// Must be called from inside a firstPage/nextPage paged-draw loop. The
+// built-in font (setFont(NULL)) positions by the text's TOP-left.
+void drawIpLabel() {
+  if (ipText.length() == 0) return;
+  display.setFont(NULL);            // classic 6x8 GFX font
+  display.setTextSize(1);
+  display.setTextColor(GxEPD_BLACK);
+  display.setCursor(2, display.height() - 8);
+  display.print(ipText);
+}
+
+// ---- Blank the panel to all-white (IP label stays) ----
 void clearDisplay() {
   display.setRotation(1);
   display.setFullWindow();
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
+    drawIpLabel();
   } while (display.nextPage());
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
@@ -61,7 +75,6 @@ void clearDisplay() {
 // ---- Draw msg, honoring '\n' line breaks, block-centered ----
 void drawText(const String& msg) {
   display.setRotation(1);
-  display.setFont(&FreeSansBold12pt7b);
   display.setTextColor(GxEPD_BLACK);
   display.setFullWindow();
 
@@ -73,6 +86,10 @@ void drawText(const String& msg) {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
+
+    // Re-select the big font each page: drawIpLabel() switches to the small
+    // built-in font, and paged drawing reruns this whole block per page.
+    display.setFont(&FreeSansBold12pt7b);
 
     uint16_t blockH = lines * LINE_HEIGHT;
     int16_t  yTop   = (display.height() - blockH) / 2;  // top of first line's box
@@ -92,6 +109,8 @@ void drawText(const String& msg) {
       display.setCursor(x, y);
       display.print(line);
     }
+
+    drawIpLabel();  // always overlay the IP at bottom-left
   } while (display.nextPage());
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
@@ -122,15 +141,17 @@ void setup() {
   Serial.begin(115200);
 
   display.init(115200);
-  drawText(currentText);   // show something on boot
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
   Serial.println();
+  ipText = WiFi.localIP().toString();   // bottom-left label needs this
   Serial.print("Ready. Browse to: http://");
-  Serial.println(WiFi.localIP());
+  Serial.println(ipText);
+
+  drawText(currentText);   // first draw now includes the IP label
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req){
     req->send(200, "text/html", page());

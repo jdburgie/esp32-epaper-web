@@ -37,11 +37,33 @@ right-side header.
 
 ## Setup
 
-1. Open `esp32-epaper-web.ino` in the Arduino IDE.
-2. Set `ssid` and `password` near the top.
-3. Select your ESP32 board and port, then upload.
-4. Open Serial Monitor at **115200** — it prints the device IP once Wi-Fi connects.
-5. Browse to that IP, type text, hit **Update Display**.
+**1. Wi-Fi credentials.** Create `secrets.h` next to the sketch (it's gitignored,
+so it never gets committed and won't be in a fresh clone):
+
+```cpp
+#pragma once
+#define SECRET_SSID "your-wifi-name"
+#define SECRET_PASS "your-wifi-password"
+```
+
+The sketch `#include`s this file and reads `SECRET_SSID` / `SECRET_PASS` — you do
+**not** edit credentials in the `.ino` anymore.
+
+**2. Build & flash.** Either toolchain works:
+
+- **PlatformIO** (config is in `platformio.ini`):
+  ```
+  pio run -t upload                       # build + flash
+  pio device monitor -p COM3 -b 115200    # watch serial
+  ```
+  Set `upload_port` / `monitor_port` in `platformio.ini` to your board's COM port
+  (it won't necessarily be COM3). Libraries resolve automatically.
+- **Arduino IDE:** open `esp32-epaper-web.ino`, install the libraries listed above,
+  select your ESP32 board + port, and upload.
+
+**3. Use it.** Open the serial monitor at **115200** — it prints the device IP once
+Wi-Fi connects. Browse to that IP, type text, hit **Update Display**. The current
+IP is also shown in the bottom-left of the panel at all times.
 
 ## Panel / constructor notes
 
