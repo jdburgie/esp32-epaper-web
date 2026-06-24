@@ -1,0 +1,14 @@
+build/
+*.bin
+*.elf
+*.hex
+.vscode/
+
+# PlatformIO
+.pio/
+
+# Secrets — never commit Wi-Fi creds
+secrets.h
+
+# Arduino IDE leftovers
+*.ino.bak
