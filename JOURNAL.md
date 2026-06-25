@@ -73,7 +73,6 @@ history**.
   gives a standalone app over HTTP (same-origin live data). HTTPS hosting would
   enable offline but mixed-content-block the HTTP device — so device-served HTTP
   is the right tradeoff. SW self-activates only if served from a secure origin.
-- Note: `pio upload` hit a stale COM3 handle once (Error 2); a retry fixed it.
 
 ### 2026-06-25 — Merged web-app → main; device serves the SPA at /app
 - **Merged `web-app` into `main`** (fast-forward) — `/status.json`, CORS, the SPA,
