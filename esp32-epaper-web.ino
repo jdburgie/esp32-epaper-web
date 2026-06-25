@@ -629,7 +629,7 @@ String page() {
     "<div style='display:flex;gap:10px;margin:0 0 16px'>"
     "<form action='/next' method='get' style='flex:1'><button type='submit' class='clear'>Next screen \xE2\x86\x92</button></form>"
     "<form action='/cycle' method='get' style='flex:1'><button type='submit'>" + String(autoCycle ? "Stop cycling" : "Auto-cycle") + "</button></form></div>"
-    "<div class='card'><h2>Text</h2>"
+    "<div class='card'><h2>Message</h2>"
     "<form action='/set' method='get'>"
     "<label>Message (scrolls if over 4 lines)</label>"
     "<textarea name='msg' rows='6' maxlength='400' placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
