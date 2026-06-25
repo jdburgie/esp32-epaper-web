@@ -74,6 +74,9 @@ struct Station {
   bool  received = false;
 } st;
 
+String reqLog;     // recent /data/report hits (newest first), viewable at /debug
+String lastBody;   // raw body of the most recent push, viewable at /debug
+
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
@@ -113,6 +116,22 @@ String asciiOnly(const String& s) {
 String truncate(const String& s, uint8_t n) {
   if (s.length() <= n) return s;
   return s.substring(0, n - 1) + ".";
+}
+
+// Push a line onto the small in-memory request log shown at /debug.
+void logReq(const String& s) {
+  reqLog = s + "\n" + reqLog;
+  if (reqLog.length() > 1800) reqLog = reqLog.substring(0, 1800);
+}
+
+// Pull key=value out of a urlencoded body (fallback when params aren't parsed).
+String fromBody(const String& body, const char* key) {
+  String k = String(key) + "=";
+  int i = body.indexOf(k);
+  if (i < 0) return String();
+  i += k.length();
+  int e = body.indexOf('&', i);
+  return body.substring(i, e < 0 ? body.length() : e);
 }
 
 // ---- Draw the IP in the built-in 6x8 font, bottom-right corner ----
@@ -542,27 +561,59 @@ void setup() {
     req->redirect("/");
   });
 
-  // Ingest pushes from the Ambient Weather console's "Customized" upload
-  // (AmbientWeather protocol, GET with sensor fields in the query string).
+  // Ingest pushes from the Ambient Weather console's "Customized" upload.
+  // The console may send GET (fields in the query string) or POST (fields in the
+  // body), so read a field from query -> POST param -> raw body, in that order.
   auto onReport = [](AsyncWebServerRequest* req){
-    auto getF = [&](const char* k, float& dst){
-      if (req->hasParam(k))       dst = req->getParam(k)->value().toFloat();
+    auto rd = [&](const char* k)->String {
+      if (req->hasParam(k))        return req->getParam(k)->value();        // GET query
+      if (req->hasParam(k, true))  return req->getParam(k, true)->value();  // POST form
+      return fromBody(lastBody, k);                                         // raw body fallback
     };
-    getF("tempf", st.tempf);
-    getF("humidity", st.humidity);
-    getF("windspeedmph", st.windmph);
-    getF("windgustmph", st.gustmph);
-    getF("dailyrainin", st.dailyrain);
-    getF("baromrelin", st.baromin);
-    if (req->hasParam("winddir")) st.winddir = req->getParam("winddir")->value().toInt();
-    st.lastUpdate = millis();
-    st.received = true;
-    Serial.printf("Station push: %.1fF hum=%.0f wind=%.1f\n", st.tempf, st.humidity, st.windmph);
-    if (mode == MODE_STATION) pending = P_STATION;   // live-refresh the panel
-    req->send(200, "text/plain", "OK");              // console expects 200
+    String t = rd("tempf");
+    if (t.length())                 st.tempf     = t.toFloat();
+    String h = rd("humidity");      if (h.length()) st.humidity  = h.toFloat();
+    String w = rd("windspeedmph");  if (w.length()) st.windmph   = w.toFloat();
+    String g = rd("windgustmph");   if (g.length()) st.gustmph   = g.toFloat();
+    String r = rd("dailyrainin");   if (r.length()) st.dailyrain = r.toFloat();
+    String b = rd("baromrelin");    if (b.length()) st.baromin   = b.toFloat();
+    String d = rd("winddir");       if (d.length()) st.winddir   = d.toInt();
+
+    bool got = t.length() > 0;
+    if (got) {
+      st.lastUpdate = millis();
+      st.received = true;
+      if (mode == MODE_STATION) pending = P_STATION;   // live-refresh the panel
+    }
+
+    String src = req->client() ? req->client()->remoteIP().toString() : "?";
+    logReq(String(millis() / 1000) + "s " + req->methodToString() + " from " + src +
+           "  query=" + String(req->params()) + " bodyLen=" + String(lastBody.length()) +
+           (got ? ("  tempf=" + t) : "  NO FIELDS PARSED"));
+    Serial.printf("/data/report from %s parsed=%d tempf=%s\n", src.c_str(), got, t.c_str());
+
+    req->send(200, "text/plain", "OK");                // console expects 200
   };
-  server.on("/data/report/", HTTP_ANY, onReport);
-  server.on("/data/report",  HTTP_ANY, onReport);    // tolerate missing trailing slash
+  // onBody captures the raw POST body so we can see/parse it even if the
+  // content-type isn't auto-parsed into params.
+  auto onBody = [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total){
+    if (index == 0) lastBody = "";
+    for (size_t i = 0; i < len && lastBody.length() < 400; i++) lastBody += (char)data[i];
+  };
+  server.on("/data/report/", HTTP_ANY, onReport, NULL, onBody);
+  server.on("/data/report",  HTTP_ANY, onReport, NULL, onBody);   // tolerate missing trailing slash
+
+  // Diagnostics: who's hitting us and with what.
+  server.on("/debug", HTTP_GET, [](AsyncWebServerRequest* req){
+    String out = "=== recent /data/report hits (newest first) ===\n" + reqLog +
+                 "\n=== last raw body ===\n" + lastBody + "\n";
+    req->send(200, "text/plain", out);
+  });
+  server.onNotFound([](AsyncWebServerRequest* req){
+    String src = req->client() ? req->client()->remoteIP().toString() : "?";
+    logReq(String(millis() / 1000) + "s 404 " + req->methodToString() + " from " + src + "  " + req->url());
+    req->send(404, "text/plain", "not found");
+  });
 
   server.begin();
 }

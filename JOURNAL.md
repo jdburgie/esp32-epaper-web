@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-24 — Fix station push parsing (POST) + /debug diagnostics
+- **Root cause of "/data/report/ failing":** the console likely POSTs the readings
+  in the request body, but the handler only read the **query string** → zero fields
+  parsed, panel stuck on "no data". Now reads each field **query → POST param →
+  raw body** (`rd()` + `fromBody()`). Confirmed: simulated POST parses `tempf`.
+- The `/data/report/` traffic is **local** — it's the console (its LAN IP) doing
+  outbound pushes, NOT ambientweather.net. The cloud never connects into the LAN.
+- Added **`/debug`** (recent hits: method, source IP, param count, parsed tempf,
+  + last raw body) and an `onNotFound` that logs 404s — so wrong path/method from
+  the real console is visible without a serial monitor.
+
 ### 2026-06-24 — Deep-refresh (de-ghost) + station waiting timeout
 - **Deep refresh** `deepRefresh()`: flashes the panel black↔white x2 to scrub
   SSD1680 ghosting, then `redrawCurrent()` restores the view. Runs automatically
