@@ -127,13 +127,13 @@ const unsigned long CYCLE_MS      = 12UL * 1000UL;   // normal dwell per screen
 const unsigned long TEXT_DWELL_MS = 30UL * 1000UL;   // longer dwell when text has notes
 int btnReading = HIGH, btnStable = HIGH; unsigned long btnTime = 0;
 
-// Text paging — scroll a 4-line window when the message is taller than the panel.
-// Scroll steps use a PARTIAL refresh (no de-ghost flash) and stop at the bottom.
+// Text paging — when the message is taller than the panel, page TEXT_VISIBLE_LINES
+// at a time (one clean full refresh per page) and stop on the last page.
 #define TEXT_VISIBLE_LINES 4
-int textScroll = 0; unsigned long lastScroll = 0;
-unsigned long scrollDoneAt = 0;                      // millis when scroll reached the last line
-const unsigned long SCROLL_MS      = 3UL * 1000UL;   // per-line scroll cadence
-const unsigned long SCROLL_HOLD_MS = 5UL * 1000UL;   // wait after the last line before auto-cycle
+int textScroll = 0; unsigned long lastScroll = 0;    // textScroll = current page index
+unsigned long scrollDoneAt = 0;                      // millis when the last page was reached
+const unsigned long PAGE_MS        = 5UL * 1000UL;   // per-page hold (reading time)
+const unsigned long SCROLL_HOLD_MS = 5UL * 1000UL;   // wait after the last page before auto-cycle
 
 unsigned long lastWxFetch = 0;
 const unsigned long WX_REFRESH_MS = 5UL * 60UL * 1000UL;  // refresh weather every 5 min
@@ -254,28 +254,27 @@ void clearDisplay() {
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
 
-// ---- Draw msg with '\n' line breaks. Centers if <=4 lines; otherwise shows a
-//      4-line window from textScroll (clamped, non-wrapping) with a position
-//      indicator. `partial=true` uses a partial refresh (no de-ghost flash) —
-//      used for scroll steps so they just clear+redraw without the black flash.
-void drawText(const String& msg, bool partial = false) {
+// ---- Draw msg with '\n' line breaks. Centers if it fits in TEXT_VISIBLE_LINES;
+//      otherwise PAGES it 4 lines at a time (page = textScroll), one clean full
+//      refresh per page, with a "page/pages" indicator bottom-left. ----
+void drawText(const String& msg) {
   display.setRotation(1);
   display.setTextColor(GxEPD_BLACK);
-  if (partial) display.setPartialWindow(0, 0, display.width(), display.height());
-  else         display.setFullWindow();
+  display.setFullWindow();
 
   uint8_t total     = lineCount(msg);
-  bool    scroll    = total > TEXT_VISIBLE_LINES;
-  uint8_t maxScroll = scroll ? (uint8_t)(total - TEXT_VISIBLE_LINES) : 0;
-  uint8_t shown     = scroll ? TEXT_VISIBLE_LINES : total;
-  uint8_t startLine = scroll ? (uint8_t)min((int)textScroll, (int)maxScroll) : 0;
+  uint8_t pages     = (total + TEXT_VISIBLE_LINES - 1) / TEXT_VISIBLE_LINES;   // ceil
+  bool    paging    = pages > 1;
+  uint8_t page      = paging ? (uint8_t)min((int)textScroll, (int)pages - 1) : 0;
+  uint8_t startLine = page * TEXT_VISIBLE_LINES;
+  uint8_t shown     = (uint8_t)min((int)TEXT_VISIBLE_LINES, (int)(total - startLine));
 
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
     display.setFont(&FreeSansBold12pt7b);   // re-select each page; overlays use the built-in font
 
-    int16_t yTop = scroll ? 6 : (display.height() - shown * LINE_HEIGHT) / 2;
+    int16_t yTop = (display.height() - shown * LINE_HEIGHT) / 2;   // center this page's lines
 
     for (uint8_t k = 0; k < shown; k++) {
       String line = nthLine(msg, startLine + k);
@@ -287,19 +286,15 @@ void drawText(const String& msg, bool partial = false) {
       display.print(line);
     }
 
-    if (scroll) {   // "topLine/total" position indicator, bottom-left
+    if (paging) {   // "page/pages" indicator, bottom-left
       display.setFont(NULL); display.setTextSize(1);
       display.setCursor(2, display.height() - 8);
-      display.print(String(startLine + 1) + "/" + String(total));
+      display.print(String(page + 1) + "/" + String(pages));
     }
 
     drawOverlays();
   } while (display.nextPage());
-  // Don't hibernate during a scrolling sequence: hibernate wipes the controller's
-  // previous-frame RAM, so the next partial update can't erase the old lines and
-  // they overlay. Stay powered (initial full draw + all partial steps) so each
-  // partial cleanly clears the prior screen. Non-scrolling text hibernates.
-  if (!scroll) display.hibernate();
+  display.hibernate();
 }
 
 // ===== Weather icons: 1-bit glyphs drawn with GFX primitives, centered (cx,cy) =====
@@ -957,17 +952,18 @@ void loop() {
     if (btnStable == LOW) cycleScreen();
   }
 
-  // Scroll the text screen one line at a time (PARTIAL refresh = no de-ghost
-  // flash) until the last line is on screen, then hold.
+  // Page the text screen 4 lines at a time (clean full refresh per page) until
+  // the last page, then hold.
   if (mode == MODE_TEXT) {
     uint8_t total = lineCount(currentText);
-    if (total > TEXT_VISIBLE_LINES) {
-      uint8_t maxScroll = total - TEXT_VISIBLE_LINES;
-      if (textScroll < maxScroll && millis() - lastScroll > SCROLL_MS) {
+    uint8_t pages = (total + TEXT_VISIBLE_LINES - 1) / TEXT_VISIBLE_LINES;
+    if (pages > 1) {
+      uint8_t maxPage = pages - 1;
+      if (textScroll < maxPage && millis() - lastScroll > PAGE_MS) {
         textScroll++;
         lastScroll = millis();
-        drawText(currentText, true);                 // partial: clear + draw scrolled lines
-        if (textScroll >= maxScroll) scrollDoneAt = millis();
+        drawText(currentText);                       // full refresh of the next page
+        if (textScroll >= maxPage) scrollDoneAt = millis();
       }
     }
   }

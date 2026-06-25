@@ -60,21 +60,18 @@ history**.
 
 ## Log
 
-### 2026-06-25 — Text scroll: flash-free partial refresh, scroll-then-hold
-- **No de-ghost on scroll:** `drawText(msg, partial)` — scroll steps call it with
-  `partial=true` → `setPartialWindow(full)` (flash-free).
-- **Overlay bug + fix:** first attempt hibernated after the initial full draw,
-  which wipes the controller's previous-frame RAM → each partial step stacked new
-  text over old. Fix: **don't hibernate during a scrolling sequence** (`if(!scroll)
-  hibernate`), so the panel keeps a valid prior frame to erase against.
-- **Font:** tried 9pt to fit more, but **too small — reverted to 12pt**
-  (`FreeSansBold12pt7b`, `LINE_HEIGHT 22`). User passed on a custom 10/11pt font.
-- **Scroll-then-hold:** non-wrapping — advances `textScroll` 0→`total-4` one line
-  per `SCROLL_MS` (3s), stops at the bottom, records `scrollDoneAt`. Auto-cycle on
-  a scrolling text screen waits `SCROLL_HOLD_MS` (5s) after that before advancing
-  (short notes still use TEXT_DWELL).
-- "Smooth" caveat: e-paper can't pixel-scroll (refresh latency); line-by-line but
-  flash-free is the smoothest practical result.
+### 2026-06-25 — Text long messages: 4-line PAGING (partial scroll abandoned)
+- **Partial-refresh line scroll didn't work on this panel** — overlaid/looked bad
+  even after the no-hibernate fix. Abandoned it.
+- **Final approach: paging.** When a message exceeds 4 lines, page it
+  `TEXT_VISIBLE_LINES` (4) at a time — one **clean full refresh per page**, lines
+  centered, `page/pages` indicator bottom-left. `textScroll` is now the page index;
+  advance every `PAGE_MS` (5s) to the last page, then hold (`scrollDoneAt`).
+  Auto-cycle waits `SCROLL_HOLD_MS` (5s) after the last page (short notes:
+  TEXT_DWELL). Full refresh = no overlay, at the cost of a brief flash per page.
+- **Font:** kept at **12pt** (`FreeSansBold12pt7b`, `LINE_HEIGHT 22`); 9pt was too
+  small, user passed on a custom font.
+- `drawText` no longer takes a `partial` arg.
 
 ### 2026-06-25 — Enclosure: refined exterior + real measured dims
 - Brought in the user's refined `weather-epaper-refined.scad` as
