@@ -22,10 +22,13 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <GxEPD2_BW.h>
+#include <Fonts/FreeSansBold9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
-#include "secrets.h"   // SECRET_SSID / SECRET_PASS (gitignored)
+#include <Fonts/FreeSansBold24pt7b.h>
+#include "secrets.h"   // SECRET_SSID / SECRET_PASS / OWM_API_KEY (gitignored)
 #include "logo.h"      // THREEOAKWOODS_BADGE_SVG, served at /logo.svg
 
 // ---- Wi-Fi ----
@@ -54,6 +57,13 @@ DisplayMode mode    = MODE_TEXT;
 String weatherZip   = "";   // last ZIP requested
 String weatherText  = "";   // short summary, shown on the web page
 
+// Parsed OpenWeatherMap result for the current ZIP.
+struct Wx {
+  String city, cond, icon, detail;
+  int    temp = 0, feels = 0, humidity = 0, wind = 0;
+  bool   valid = false;
+} wx;
+
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
@@ -76,6 +86,13 @@ String asciiOnly(const String& s) {
   }
   out.trim();
   return out;
+}
+
+// Truncate to n chars with a trailing '.' if clipped (keeps long city/condition
+// strings from overflowing the panel width).
+String truncate(const String& s, uint8_t n) {
+  if (s.length() <= n) return s;
+  return s.substring(0, n - 1) + ".";
 }
 
 // ---- Draw the IP in the built-in 6x8 font, bottom-left corner ----
@@ -145,50 +162,144 @@ void drawText(const String& msg) {
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
 
-// ---- Fetch weather for weatherZip from wttr.in and draw it ----
-// wttr.in takes a US ZIP directly and, with ?format=, returns one line we can
-// split — no JSON parser needed. Format "%l|%t|%C" -> "City, State, ...|+72F|Sunny".
-void fetchAndDrawWeather() {
-  if (weatherZip.length() == 0) { drawText("Enter a ZIP\nfor weather"); return; }
+// ===== Weather icons: 1-bit glyphs drawn with GFX primitives, centered (cx,cy) =====
+void drawSun(int cx, int cy, int r) {
+  display.fillCircle(cx, cy, r, GxEPD_BLACK);
+  for (int a = 0; a < 360; a += 45) {
+    float t = a * 0.0174533f;
+    display.drawLine(cx + cos(t) * (r + 4), cy + sin(t) * (r + 4),
+                     cx + cos(t) * (r + 11), cy + sin(t) * (r + 11), GxEPD_BLACK);
+  }
+}
+void drawCloud(int cx, int cy, int s) {  // filled silhouette; s ~ half-width
+  display.fillCircle(cx - s * 0.5, cy, s * 0.42, GxEPD_BLACK);
+  display.fillCircle(cx + s * 0.5, cy, s * 0.5,  GxEPD_BLACK);
+  display.fillCircle(cx,           cy - s * 0.4, s * 0.55, GxEPD_BLACK);
+  display.fillRect(cx - s * 0.5, cy, s, s * 0.5, GxEPD_BLACK);
+}
+void drawRain(int cx, int cy) {
+  for (int i = -1; i <= 1; i++) display.drawLine(cx + i * 10, cy, cx + i * 10 - 4, cy + 9, GxEPD_BLACK);
+}
+void drawSnow(int cx, int cy) {
+  for (int i = -1; i <= 1; i++) display.fillCircle(cx + i * 10, cy + 4, 2, GxEPD_BLACK);
+}
+void drawBolt(int cx, int cy) {
+  display.fillTriangle(cx - 4, cy - 6, cx + 5, cy - 6, cx - 2, cy + 3, GxEPD_BLACK);
+  display.fillTriangle(cx + 4, cy - 1, cx - 3, cy + 9, cx + 2, cy + 1, GxEPD_BLACK);
+}
+void drawMist(int cx, int cy) {
+  for (int i = 0; i < 4; i++) display.drawFastHLine(cx - 18, cy - 9 + i * 7, 36, GxEPD_BLACK);
+}
+// Map an OpenWeatherMap icon code ("01d","10n",...) to a glyph.
+void drawWeatherIcon(int cx, int cy, const String& code) {
+  String k = code.substring(0, 2);
+  if      (k == "01") drawSun(cx, cy, 15);
+  else if (k == "02") { drawSun(cx - 9, cy - 9, 10); drawCloud(cx + 5, cy + 7, 28); }
+  else if (k == "03" || k == "04") drawCloud(cx, cy, 32);
+  else if (k == "09" || k == "10") { drawCloud(cx, cy - 7, 28); drawRain(cx, cy + 16); }
+  else if (k == "11") { drawCloud(cx, cy - 7, 28); drawBolt(cx, cy + 13); }
+  else if (k == "13") { drawCloud(cx, cy - 7, 28); drawSnow(cx, cy + 14); }
+  else if (k == "50") drawMist(cx, cy);
+  else drawCloud(cx, cy, 30);
+}
 
-  String url = "https://wttr.in/" + weatherZip + "?format=%l|%t|%C";
+// ---- Fetch current weather for weatherZip from OpenWeatherMap ----
+bool fetchWeather() {
+  if (weatherZip.length() == 0) return false;
+  String url = "https://api.openweathermap.org/data/2.5/weather?zip=" + weatherZip +
+               ",us&units=imperial&appid=" + OWM_API_KEY;
   WiFiClientSecure client;
   client.setInsecure();              // skip cert validation (home project)
   HTTPClient http;
   http.setConnectTimeout(8000);
   http.setTimeout(8000);
-  String body;
-  int code = -1;
+  int code = -1; String body;
   if (http.begin(client, url)) {
-    http.addHeader("User-Agent", "curl/8.0");   // wttr.in gives plain text to curl-like UAs
     code = http.GET();
     if (code == HTTP_CODE_OK) body = http.getString();
     http.end();
   }
-
-  body.trim();
-  if (code != HTTP_CODE_OK || body.length() == 0 || body.startsWith("Unknown location")) {
-    weatherText = "unavailable (ZIP " + weatherZip + ")";
-    drawText("Weather\nunavailable\nZIP " + weatherZip);
-    Serial.printf("Weather fetch failed: code=%d body=%s\n", code, body.c_str());
-    return;
+  if (code != HTTP_CODE_OK || body.length() == 0) {
+    Serial.printf("OWM fetch failed: code=%d\n", code);
+    wx.valid = false;
+    return false;
   }
 
-  // Split "loc|temp|cond" on '|'.
-  int p1 = body.indexOf('|');
-  int p2 = body.indexOf('|', p1 + 1);
-  String loc  = (p1 < 0) ? body : body.substring(0, p1);
-  String temp = (p1 < 0) ? "" : body.substring(p1 + 1, p2 < 0 ? body.length() : p2);
-  String cond = (p2 < 0) ? "" : body.substring(p2 + 1);
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) { Serial.println("OWM JSON parse error"); wx.valid = false; return false; }
 
-  String city = loc.substring(0, loc.indexOf(',') < 0 ? loc.length() : loc.indexOf(','));
-  city = asciiOnly(city);
-  temp = asciiOnly(temp); temp.replace("+", "");   // "+72F" -> "72F"
-  cond = asciiOnly(cond);
+  wx.city     = asciiOnly(String((const char*)(doc["name"] | "")));
+  wx.temp     = lround((float)(doc["main"]["temp"]       | 0.0f));
+  wx.feels    = lround((float)(doc["main"]["feels_like"] | 0.0f));
+  wx.humidity = (int)(doc["main"]["humidity"]            | 0);
+  wx.wind     = lround((float)(doc["wind"]["speed"]      | 0.0f));
+  wx.cond     = asciiOnly(String((const char*)(doc["weather"][0]["description"] | "")));
+  wx.icon     = String((const char*)(doc["weather"][0]["icon"] | "01d"));
+  if (wx.cond.length()) wx.cond.setCharAt(0, toupper(wx.cond[0]));
+  wx.detail   = "Feels " + String(wx.feels) + "F   Hum " + String(wx.humidity) +
+                "%   Wind " + String(wx.wind);
+  wx.valid    = true;
 
-  weatherText = city + " " + temp + ", " + cond;   // for the web page
-  drawText(city + "\n" + temp + "\n" + cond);       // City / temp / condition
+  weatherText = wx.city + " " + String(wx.temp) + "F, " + wx.cond;
   Serial.println("Weather: " + weatherText);
+  return true;
+}
+
+// ---- Fancy weather layout: city / icon / big temp / condition / details ----
+void drawWeather() {
+  display.setRotation(1);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+
+    // City header + divider rule.
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(5, 15);
+    display.print(truncate(wx.city, 24));
+    display.drawFastHLine(0, 20, display.width(), GxEPD_BLACK);
+
+    // Weather icon (left).
+    drawWeatherIcon(40, 60, wx.icon);
+
+    // Big temperature with a hand-drawn degree ring + small "F" (right).
+    display.setFont(&FreeSansBold24pt7b);
+    String t = String(wx.temp);
+    int16_t bx, by; uint16_t bw, bh;
+    display.getTextBounds(t, 0, 0, &bx, &by, &bw, &bh);
+    int tx = 96, base = 62;
+    display.setCursor(tx, base);
+    display.print(t);
+    int dx = tx + bw + 8, dy = base - bh + 4;
+    display.drawCircle(dx, dy, 4, GxEPD_BLACK);
+    display.drawCircle(dx, dy, 3, GxEPD_BLACK);
+    display.setFont(&FreeSansBold12pt7b);
+    display.setCursor(dx + 7, base);
+    display.print("F");
+
+    // Condition text under the temperature.
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(94, 84);
+    display.print(truncate(wx.cond, 20));
+
+    // Detail line (feels-like / humidity / wind) across the bottom.
+    display.setCursor(5, 106);
+    display.print(wx.detail);
+
+    drawIpLabel();  // IP stays bottom-left
+  } while (display.nextPage());
+  display.hibernate();
+}
+
+// ---- Fetch + render, or show an error on the panel ----
+void fetchAndDrawWeather() {
+  if (fetchWeather()) {
+    drawWeather();
+  } else {
+    weatherText = "unavailable (ZIP " + weatherZip + ")";
+    drawText("Weather\nunavailable\nZIP " + weatherZip);
+  }
 }
 
 // ---- Three Oak Woods themed control page ----

@@ -16,6 +16,7 @@ history**.
    #pragma once
    #define SECRET_SSID "your-wifi-name"
    #define SECRET_PASS "your-wifi-password"
+   #define OWM_API_KEY "your-openweathermap-key"   // weather mode
    ```
 3. **Build/flash.** Two supported paths:
    - **PlatformIO** (used on the primary machine):
@@ -58,6 +59,22 @@ history**.
 ---
 
 ## Log
+
+### 2026-06-24 — Fancy weather: OpenWeatherMap + drawn icons
+- **Switched weather source wttr.in → OpenWeatherMap** (current-weather endpoint,
+  `units=imperial`). Key lives in `secrets.h` as `OWM_API_KEY` (gitignored). JSON
+  parsed with **ArduinoJson** (added to `lib_deps`). Now gets the real **city
+  name** (wttr.in only echoed the ZIP), plus feels-like / humidity / wind / icon.
+- **Fancy panel layout** (`drawWeather()`): city header + divider rule, a drawn
+  **weather icon** on the left, **big temperature** (FreeSansBold24pt) with a
+  hand-drawn degree ring + small "F", condition text, and a feels/hum/wind detail
+  line — IP still bottom-left. Added fonts FreeSansBold9pt7b + FreeSansBold24pt7b.
+- **Weather icons** are 1-bit GFX primitives (`drawSun/drawCloud/drawRain/drawSnow/
+  drawBolt/drawMist`) mapped from the OWM icon code (`01`–`50`) — no bitmaps.
+- **Partition bump:** `board_build.partitions = huge_app.csv` (3MB app) since fonts
+  + TLS + JSON pushed the default ~1.3MB partition close. Firmware ~1.03MB.
+- **Verified:** ZIP 94103 → "San Francisco 61F, Few clouds" parsed and drawn.
+- Wi-Fi: SSID "Three Oak Wood". (Reminder: `pio device monitor` resets the board.)
 
 ### 2026-06-24 — Weather mode + Three Oak Woods themed page
 - **Two display modes:** Text (existing) and **Weather**. The page now has a Text

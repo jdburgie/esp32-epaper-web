@@ -44,10 +44,12 @@ so it never gets committed and won't be in a fresh clone):
 #pragma once
 #define SECRET_SSID "your-wifi-name"
 #define SECRET_PASS "your-wifi-password"
+#define OWM_API_KEY "your-openweathermap-key"   // for weather mode (openweathermap.org/api)
 ```
 
-The sketch `#include`s this file and reads `SECRET_SSID` / `SECRET_PASS` — you do
-**not** edit credentials in the `.ino` anymore.
+The sketch `#include`s this file and reads `SECRET_SSID` / `SECRET_PASS` /
+`OWM_API_KEY` — you do **not** edit credentials in the `.ino` anymore. A free
+OpenWeatherMap key works; if you don't need weather, any non-empty string is fine.
 
 **2. Build & flash.** Either toolchain works:
 
@@ -72,13 +74,15 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
 
 - **Text** — type a message (multi-line supported) and hit **Update Display**.
 - **Weather** — enter a US **ZIP code** and hit **Show Weather**. The panel shows
-  ZIP / temperature / conditions and **auto-refreshes every 15 minutes**.
+  a drawn weather icon, the **city**, a large **temperature**, the **condition**,
+  and a **feels-like / humidity / wind** line. It **auto-refreshes every 15 min**.
 
-Weather comes from **[wttr.in](https://wttr.in)** — no API key required; it takes a
-ZIP directly and returns a one-line format the firmware parses (no JSON library).
-The fetch uses HTTPS with certificate validation disabled (fine for a home device).
-To swap in another provider (e.g. OpenWeatherMap with a key), edit
-`fetchAndDrawWeather()`.
+Weather comes from **[OpenWeatherMap](https://openweathermap.org/api)** (current-
+weather endpoint, `units=imperial`). Put a free API key in `secrets.h` as
+`OWM_API_KEY`. The JSON response is parsed with ArduinoJson; the fetch uses HTTPS
+with certificate validation disabled (fine for a home device). The weather icons
+are drawn as 1-bit GFX primitives keyed off the OWM icon code (`01d`, `10n`, …) —
+no bitmap assets needed.
 
 > **Architecture note:** web handlers don't draw or fetch directly — they queue a
 > `Pending` action that `loop()` executes. This keeps blocking SPI/TLS work off the
