@@ -128,9 +128,15 @@ console's web UI (the *Customized* section):
 | Upload Interval | `60` seconds |
 
 The firmware parses `tempf`, `humidity`, `windspeedmph`, `windgustmph`, `winddir`,
-`dailyrainin`, and `baromrelin` from the query string and replies `200 OK`. Your
-existing AmbientWeather.net cloud upload is independent and keeps working. Tap
-**Show Station** on the page to put the live feed on the panel.
+`dailyrainin`, and `baromrelin` and replies `200 OK`. Your existing
+AmbientWeather.net cloud upload is independent and keeps working. Tap **Show
+Station** on the page to put the live feed on the panel.
+
+> **AMBWeatherPro quirk:** this console joins its parameters onto the URL with
+> `&` instead of `?` (`/data/report/&tempf=…`), so there's no query delimiter and
+> a normal server parses nothing. The handler works around it by parsing the raw
+> URL tail when no `?` is present — so no special path config is needed on the
+> console; just set `Server` to the ESP's IP.
 
 ## Panel / constructor notes
 

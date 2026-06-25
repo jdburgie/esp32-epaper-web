@@ -60,6 +60,21 @@ history**.
 
 ## Log
 
+### 2026-06-25 — STATION DATA FLOWING. Fixed the `&` vs `?` URL quirk
+- Console finally pushed once Server was set to 192.168.12.50, but sent
+  `query=0 NO FIELDS PARSED`. Full `/debug` dump revealed why: the **AMBWeatherPro
+  console joins params with `&` not `?`** — URL was
+  `/data/report/&PASSKEY=...&tempf=64.0&humidity=71&...` (User-Agent: `AMBWeatherPro`).
+  No `?` delimiter → server parses nothing, even though all fields are present.
+- **Fix:** in `onReport`, grab the URL tail after the first `?`/`&` and parse it
+  with `fromBody()` (added as a source in `rd()`). Now works with the console's
+  stock config — no special Path needed. Verified: live "Station — 64F, Hum 72%,
+  Wind 3", pushes every 60s from .190 parsing cleanly.
+- Added a full-request dump to `/debug` (method/url/headers/params/body) — that's
+  what exposed the `&` quirk. Keep it; invaluable for this kind of thing.
+- Note: boot restore currently only handles WEATHER→weather else clock; STATION
+  isn't restored on boot (would show "waiting" then fill). Offered to add.
+
 ### 2026-06-24 — Static IP (T-Mobile gateway has no DHCP reservation)
 - **Root issue all along:** the console's "Customized" Server field was **blank**,
   so it never pushed. `/debug` proved it — only this PC's IP (.112) ever hit

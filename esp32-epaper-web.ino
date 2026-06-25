@@ -83,6 +83,7 @@ struct Station {
 
 String reqLog;     // recent /data/report hits (newest first), viewable at /debug
 String lastBody;   // raw body of the most recent push, viewable at /debug
+String lastReq;    // full dump (method/url/headers/params/body) of last /data/report hit
 
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
@@ -658,9 +659,27 @@ void setup() {
   // The console may send GET (fields in the query string) or POST (fields in the
   // body), so read a field from query -> POST param -> raw body, in that order.
   auto onReport = [](AsyncWebServerRequest* req){
+    // Full dump of exactly what arrived, so we can see how the console talks.
+    String dump = String(req->methodToString()) + " " + req->url() + "\n";
+    int nh = req->headers();
+    for (int i = 0; i < nh; i++) { const AsyncWebHeader* hh = req->getHeader(i); dump += "  " + hh->name() + ": " + hh->value() + "\n"; }
+    int np = req->params();
+    for (int i = 0; i < np; i++) { const AsyncWebParameter* pp = req->getParam(i); dump += "  param " + pp->name() + "=" + pp->value() + (pp->isPost() ? " [POST]" : " [GET]") + "\n"; }
+    dump += "  body[" + String(lastBody.length()) + "]: " + lastBody + "\n";
+    lastReq = dump;
+
+    // The AMBWeatherPro console joins params with '&' instead of '?', so there's
+    // no query delimiter and nothing parses normally. Grab the raw param tail
+    // (everything after the first '?' or '&' in the URL) and parse it ourselves.
+    String url = req->url();
+    int qi = url.indexOf('?');
+    if (qi < 0) qi = url.indexOf('&');
+    String urlq = (qi >= 0) ? url.substring(qi + 1) : "";
+
     auto rd = [&](const char* k)->String {
       if (req->hasParam(k))        return req->getParam(k)->value();        // GET query
       if (req->hasParam(k, true))  return req->getParam(k, true)->value();  // POST form
+      String v = fromBody(urlq, k);  if (v.length()) return v;             // '&'-joined URL tail
       return fromBody(lastBody, k);                                         // raw body fallback
     };
     String t = rd("tempf");
@@ -699,7 +718,7 @@ void setup() {
   // Diagnostics: who's hitting us and with what.
   server.on("/debug", HTTP_GET, [](AsyncWebServerRequest* req){
     String out = "=== recent /data/report hits (newest first) ===\n" + reqLog +
-                 "\n=== last raw body ===\n" + lastBody + "\n";
+                 "\n=== full dump of last /data/report request ===\n" + lastReq + "\n";
     req->send(200, "text/plain", out);
   });
   server.onNotFound([](AsyncWebServerRequest* req){
