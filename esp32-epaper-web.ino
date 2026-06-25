@@ -77,11 +77,21 @@ struct Station {
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
-enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION };
+enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP };
 volatile Pending pending = P_NONE;
 
 unsigned long lastWxFetch = 0;
 const unsigned long WX_REFRESH_MS = 15UL * 60UL * 1000UL;  // refresh weather every 15 min
+
+unsigned long lastDeep = 0;
+const unsigned long DEEP_REFRESH_MS = 6UL * 60UL * 60UL * 1000UL;  // scrub ghosting every 6 h
+
+// Station "waiting for data" handling: show a live counter, then fall back so the
+// panel never looks hung if the console isn't pushing yet.
+unsigned long stationModeSince = 0;
+unsigned long lastWaitDraw     = 0;
+const unsigned long STATION_WAIT_MS = 90UL * 1000UL;   // give up waiting after 90 s
+const unsigned long WAIT_REDRAW_MS  = 20UL * 1000UL;   // refresh the waiting screen every 20 s
 
 // Line spacing for FreeSansBold12pt7b (~17px glyphs + breathing room).
 #define LINE_HEIGHT 22
@@ -335,7 +345,8 @@ String stationSummary() {
 // ---- Backyard station layout: big temp (left) + stat lines (right) ----
 void drawStation() {
   if (!st.received) {
-    drawText("Waiting for\nstation data\n/data/report/");
+    unsigned long s = (millis() - stationModeSince) / 1000;
+    drawText("Waiting for\nstation push\n(" + String(s) + "s)");
     return;
   }
   display.setRotation(1);
@@ -387,6 +398,24 @@ void drawStation() {
     drawIpLabel();
   } while (display.nextPage());
   display.hibernate();
+}
+
+// ---- Deep refresh: flash black<->white to scrub e-paper ghosting ----
+void deepRefresh() {
+  display.setRotation(1);
+  display.setFullWindow();
+  for (int i = 0; i < 2; i++) {
+    display.firstPage(); do { display.fillScreen(GxEPD_BLACK); } while (display.nextPage());
+    display.firstPage(); do { display.fillScreen(GxEPD_WHITE); } while (display.nextPage());
+  }
+  display.hibernate();
+}
+
+// ---- Redraw whatever the current mode should show ----
+void redrawCurrent() {
+  if      (mode == MODE_WEATHER) { if (wx.valid) drawWeather(); else fetchAndDrawWeather(); }
+  else if (mode == MODE_STATION) drawStation();
+  else                           drawText(currentText);
 }
 
 // ---- Three Oak Woods themed control page ----
@@ -444,8 +473,11 @@ String page() {
     "<p style='margin:0 0 8px;color:#5b5b50;font-size:.9em'>Live from your Ambient Weather console (" + stationSummary() + ").</p>"
     "<form action='/station' method='get'>"
     "<button type='submit'>Show Station</button></form></div>"
-    "<form action='/clear' method='get'>"
+    "<div style='display:flex;gap:10px'>"
+    "<form action='/clear' method='get' style='flex:1'>"
     "<button type='submit' class='clear'>Clear Screen</button></form>"
+    "<form action='/refresh' method='get' style='flex:1'>"
+    "<button type='submit' class='clear'>Clean (de-ghost)</button></form></div>"
     "<footer>Three Oak Woods \xC2\xB7 threeoakwoods.com</footer>"
     "</div></body></html>";
   return h;
@@ -466,6 +498,7 @@ void setup() {
   Serial.println(ipText);
 
   drawText(currentText);   // first draw now includes the IP label
+  lastDeep = millis();     // start the deep-refresh timer from boot
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req){
     req->send(200, "text/html", page());
@@ -498,7 +531,14 @@ void setup() {
 
   server.on("/station", HTTP_GET, [](AsyncWebServerRequest* req){
     mode = MODE_STATION;
+    stationModeSince = millis();   // start the "waiting" timeout/counter
+    lastWaitDraw = 0;
     pending = P_STATION;
+    req->redirect("/");
+  });
+
+  server.on("/refresh", HTTP_GET, [](AsyncWebServerRequest* req){
+    pending = P_DEEP;              // de-ghost, then redraw current mode
     req->redirect("/");
   });
 
@@ -536,12 +576,32 @@ void loop() {
     else if (job == P_WEATHER) { fetchAndDrawWeather(); lastWxFetch = millis(); }
     else if (job == P_STATION) drawStation();
     else if (job == P_CLEAR)   clearDisplay();
+    else if (job == P_DEEP)    { deepRefresh(); redrawCurrent(); lastDeep = millis(); }
   }
 
   // Keep weather fresh while it's the active mode.
   if (mode == MODE_WEATHER && millis() - lastWxFetch > WX_REFRESH_MS) {
     fetchAndDrawWeather();
     lastWxFetch = millis();
+  }
+
+  // Station mode with no data yet: keep the "waiting" screen visibly counting,
+  // then fall back so the panel never looks hung.
+  if (mode == MODE_STATION && !st.received) {
+    if (millis() - stationModeSince > STATION_WAIT_MS) {
+      if (weatherZip.length()) { mode = MODE_WEATHER; fetchAndDrawWeather(); lastWxFetch = millis(); }
+      else                     { mode = MODE_TEXT;    drawText(currentText); }
+    } else if (millis() - lastWaitDraw > WAIT_REDRAW_MS) {
+      drawStation();          // redraw waiting screen with updated counter
+      lastWaitDraw = millis();
+    }
+  }
+
+  // Periodically scrub e-paper ghosting, then restore the current view.
+  if (millis() - lastDeep > DEEP_REFRESH_MS) {
+    deepRefresh();
+    redrawCurrent();
+    lastDeep = millis();
   }
 
   delay(20);

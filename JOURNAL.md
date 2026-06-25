@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-24 — Deep-refresh (de-ghost) + station waiting timeout
+- **Deep refresh** `deepRefresh()`: flashes the panel black↔white x2 to scrub
+  SSD1680 ghosting, then `redrawCurrent()` restores the view. Runs automatically
+  every 6 h (`DEEP_REFRESH_MS`) and on demand via a **Clean (de-ghost)** button
+  (`/refresh` → `P_DEEP`). Resolves the humidity-digit ghosting seen earlier.
+- **Station "waiting" no longer looks hung:** the waiting screen shows a live
+  `(Ns)` counter and redraws every 20 s; after 90 s (`STATION_WAIT_MS`) with no
+  push it **falls back** to weather (if a ZIP is set) or text. `stationModeSince`
+  set when `/station` is tapped. Verified: fell back to "Weather — Greeley" after
+  ~90 s of no data.
+
 ### 2026-06-24 — IP to lower-right + weather detail overflow fix
 - IP label moved to the **lower-right** corner only (`drawIpLabel()`,
   right-aligned by `len*6`). Briefly tried both corners; user wanted right only.

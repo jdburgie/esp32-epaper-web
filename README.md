@@ -78,7 +78,12 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
   and a **feels-like / humidity / wind** line. It **auto-refreshes every 15 min**.
 - **Backyard Station** — live data pushed from a local **Ambient Weather** console
   (see below). Shows outdoor temp, humidity, wind + direction, gust, rain, and
-  pressure, and **redraws on every push** while this mode is active.
+  pressure, and **redraws on every push** while this mode is active. While waiting
+  for the first push it shows a live counter, and **falls back to weather after
+  ~90 s** so the panel never looks hung if the console isn't pushing yet.
+
+The page also has a **Clean (de-ghost)** button that flashes the panel black↔white
+to scrub e-paper ghosting; the same scrub runs automatically every 6 hours.
 
 Weather comes from **[OpenWeatherMap](https://openweathermap.org/api)** (current-
 weather endpoint, `units=imperial`). Put a free API key in `secrets.h` as
