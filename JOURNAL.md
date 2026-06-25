@@ -65,8 +65,8 @@ history**.
   it (`prefs.getString("text", ...)`). Boot mode logic gained a `MODE_TEXT` branch
   so a saved message screen comes back after a power cycle (was: text reset to
   "Hello World!"; only mode+zip+cycle persisted).
-- Compile-only verified (ESP unplugged for measurements) — **needs a flash** next
-  time it's connected.
+- **Verified on hardware:** set "Persist me/line two", hard-rebooted (DTR/RTS) →
+  came back as mode `text` with the message intact (was: reset to "Hello World!").
 
 ### 2026-06-25 — Made the web app a PWA (installable, home-screen)
 - Added `webapp/manifest.webmanifest`, `webapp/sw.js`, and icons (192/512/apple-
