@@ -84,7 +84,7 @@ enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP };
 volatile Pending pending = P_NONE;
 
 unsigned long lastWxFetch = 0;
-const unsigned long WX_REFRESH_MS = 15UL * 60UL * 1000UL;  // refresh weather every 15 min
+const unsigned long WX_REFRESH_MS = 5UL * 60UL * 1000UL;  // refresh weather every 5 min
 
 unsigned long lastDeep = 0;
 const unsigned long DEEP_REFRESH_MS = 6UL * 60UL * 60UL * 1000UL;  // scrub ghosting every 6 h

@@ -75,7 +75,7 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
 - **Text** — type a message (multi-line supported) and hit **Update Display**.
 - **Weather** — enter a US **ZIP code** and hit **Show Weather**. The panel shows
   a drawn weather icon, the **city**, a large **temperature**, the **condition**,
-  and a **feels-like / humidity / wind** line. It **auto-refreshes every 15 min**.
+  and a **feels-like / humidity / wind** line. It **auto-refreshes every 5 min**.
 - **Backyard Station** — live data pushed from a local **Ambient Weather** console
   (see below). Shows outdoor temp, humidity, wind + direction, gust, rain, and
   pressure, and **redraws on every push** while this mode is active. While waiting
