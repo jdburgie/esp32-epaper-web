@@ -52,7 +52,7 @@ String currentText  = "Hello World!";
 String ipText       = "";   // set once Wi-Fi connects; shown bottom-left always
 
 // ---- Display mode + weather state ----
-enum DisplayMode { MODE_TEXT, MODE_WEATHER };
+enum DisplayMode { MODE_TEXT, MODE_WEATHER, MODE_STATION };
 DisplayMode mode    = MODE_TEXT;
 String weatherZip   = "";   // last ZIP requested
 String weatherText  = "";   // short summary, shown on the web page
@@ -64,10 +64,20 @@ struct Wx {
   bool   valid = false;
 } wx;
 
+// Live data pushed by the Ambient Weather console to /data/report/ (its
+// "Customized" upload, AmbientWeather protocol). NAN = field not reported.
+struct Station {
+  float tempf = NAN, humidity = NAN, windmph = NAN, gustmph = NAN;
+  float dailyrain = NAN, baromin = NAN;
+  int   winddir = -1;
+  unsigned long lastUpdate = 0;   // millis() of last push
+  bool  received = false;
+} st;
+
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
-enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR };
+enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION };
 volatile Pending pending = P_NONE;
 
 unsigned long lastWxFetch = 0;
@@ -302,11 +312,91 @@ void fetchAndDrawWeather() {
   }
 }
 
+// 16-point compass label for a wind direction in degrees.
+String compass(int deg) {
+  if (deg < 0) return "";
+  static const char* p[] = {"N","NNE","NE","ENE","E","ESE","SE","SSE",
+                            "S","SSW","SW","WSW","W","WNW","NW","NNW"};
+  return p[((deg + 11) / 22) % 16];
+}
+
+// One-line station summary for the web page (or a "no data yet" note).
+String stationSummary() {
+  if (!st.received) return "no data yet";
+  String s = String((int)round(st.tempf)) + "F";
+  if (!isnan(st.humidity)) s += ", Hum " + String((int)round(st.humidity)) + "%";
+  if (!isnan(st.windmph))  s += ", Wind " + String((int)round(st.windmph));
+  unsigned long age = (millis() - st.lastUpdate) / 1000;
+  s += "  (" + String(age) + "s ago)";
+  return s;
+}
+
+// ---- Backyard station layout: big temp (left) + stat lines (right) ----
+void drawStation() {
+  if (!st.received) {
+    drawText("Waiting for\nstation data\n/data/report/");
+    return;
+  }
+  display.setRotation(1);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(5, 15);
+    display.print("Backyard Station");
+    display.drawFastHLine(0, 20, display.width(), GxEPD_BLACK);
+
+    // Big outdoor temperature (left).
+    display.setFont(&FreeSansBold24pt7b);
+    String t = String((int)round(st.tempf));
+    int16_t bx, by; uint16_t bw, bh;
+    display.getTextBounds(t, 0, 0, &bx, &by, &bw, &bh);
+    int tx = 8, base = 64;
+    display.setCursor(tx, base);
+    display.print(t);
+    int dx = tx + bw + 7, dy = base - bh + 4;
+    display.drawCircle(dx, dy, 4, GxEPD_BLACK);
+    display.drawCircle(dx, dy, 3, GxEPD_BLACK);
+    display.setFont(&FreeSansBold12pt7b);
+    display.setCursor(dx + 6, base);
+    display.print("F");
+
+    // Stat column (right).
+    display.setFont(&FreeSansBold9pt7b);
+    int rx = 132, ry = 40;
+    if (!isnan(st.humidity)) { display.setCursor(rx, ry); display.print("Hum  " + String((int)round(st.humidity)) + "%"); ry += 18; }
+    if (!isnan(st.windmph)) {
+      String w = "Wind " + String((int)round(st.windmph));
+      if (st.winddir >= 0) w += " " + compass(st.winddir);
+      display.setCursor(rx, ry); display.print(w); ry += 18;
+    }
+    if (!isnan(st.gustmph))   { display.setCursor(rx, ry); display.print("Gust " + String((int)round(st.gustmph)) + " mph"); ry += 18; }
+    if (!isnan(st.dailyrain)) { display.setCursor(rx, ry); display.print("Rain " + String(st.dailyrain, 2) + "\""); ry += 18; }
+
+    // Pressure across the bottom (left).
+    if (!isnan(st.baromin)) {
+      display.setFont(&FreeSansBold9pt7b);
+      display.setCursor(8, 104);
+      display.print(String(st.baromin, 2) + " inHg");
+    }
+
+    drawIpLabel();
+  } while (display.nextPage());
+  display.hibernate();
+}
+
 // ---- Three Oak Woods themed control page ----
 String page() {
-  String status = (mode == MODE_WEATHER)
-      ? ("Weather \xE2\x80\x94 " + (weatherText.length() ? weatherText : ("ZIP " + weatherZip)))
-      : currentText;
+  String status;
+  if (mode == MODE_WEATHER)
+    status = "Weather \xE2\x80\x94 " + (weatherText.length() ? weatherText : ("ZIP " + weatherZip));
+  else if (mode == MODE_STATION)
+    status = "Station \xE2\x80\x94 " + stationSummary();
+  else
+    status = currentText;
 
   String h =
     "<!DOCTYPE html><html><head><meta charset='utf-8'>"
@@ -349,6 +439,10 @@ String page() {
     "<label>ZIP code</label>"
     "<input name='zip' inputmode='numeric' pattern='[0-9]{5}' maxlength='5' required placeholder='e.g. 94103' value='" + weatherZip + "'>"
     "<button type='submit' class='amber'>Show Weather</button></form></div>"
+    "<div class='card'><h2>Backyard Station</h2>"
+    "<p style='margin:0 0 8px;color:#5b5b50;font-size:.9em'>Live from your Ambient Weather console (" + stationSummary() + ").</p>"
+    "<form action='/station' method='get'>"
+    "<button type='submit'>Show Station</button></form></div>"
     "<form action='/clear' method='get'>"
     "<button type='submit' class='clear'>Clear Screen</button></form>"
     "<footer>Three Oak Woods \xC2\xB7 threeoakwoods.com</footer>"
@@ -401,10 +495,33 @@ void setup() {
     req->redirect("/");
   });
 
-  server.on("/clear", HTTP_GET, [](AsyncWebServerRequest* req){
-    pending = P_CLEAR;
+  server.on("/station", HTTP_GET, [](AsyncWebServerRequest* req){
+    mode = MODE_STATION;
+    pending = P_STATION;
     req->redirect("/");
   });
+
+  // Ingest pushes from the Ambient Weather console's "Customized" upload
+  // (AmbientWeather protocol, GET with sensor fields in the query string).
+  auto onReport = [](AsyncWebServerRequest* req){
+    auto getF = [&](const char* k, float& dst){
+      if (req->hasParam(k))       dst = req->getParam(k)->value().toFloat();
+    };
+    getF("tempf", st.tempf);
+    getF("humidity", st.humidity);
+    getF("windspeedmph", st.windmph);
+    getF("windgustmph", st.gustmph);
+    getF("dailyrainin", st.dailyrain);
+    getF("baromrelin", st.baromin);
+    if (req->hasParam("winddir")) st.winddir = req->getParam("winddir")->value().toInt();
+    st.lastUpdate = millis();
+    st.received = true;
+    Serial.printf("Station push: %.1fF hum=%.0f wind=%.1f\n", st.tempf, st.humidity, st.windmph);
+    if (mode == MODE_STATION) pending = P_STATION;   // live-refresh the panel
+    req->send(200, "text/plain", "OK");              // console expects 200
+  };
+  server.on("/data/report/", HTTP_ANY, onReport);
+  server.on("/data/report",  HTTP_ANY, onReport);    // tolerate missing trailing slash
 
   server.begin();
 }
@@ -416,6 +533,7 @@ void loop() {
     pending = P_NONE;
     if      (job == P_TEXT)    drawText(currentText);
     else if (job == P_WEATHER) { fetchAndDrawWeather(); lastWxFetch = millis(); }
+    else if (job == P_STATION) drawStation();
     else if (job == P_CLEAR)   clearDisplay();
   }
 

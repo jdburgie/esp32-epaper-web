@@ -76,6 +76,9 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
 - **Weather** — enter a US **ZIP code** and hit **Show Weather**. The panel shows
   a drawn weather icon, the **city**, a large **temperature**, the **condition**,
   and a **feels-like / humidity / wind** line. It **auto-refreshes every 15 min**.
+- **Backyard Station** — live data pushed from a local **Ambient Weather** console
+  (see below). Shows outdoor temp, humidity, wind + direction, gust, rain, and
+  pressure, and **redraws on every push** while this mode is active.
 
 Weather comes from **[OpenWeatherMap](https://openweathermap.org/api)** (current-
 weather endpoint, `units=imperial`). Put a free API key in `secrets.h` as
@@ -87,6 +90,26 @@ no bitmap assets needed.
 > **Architecture note:** web handlers don't draw or fetch directly — they queue a
 > `Pending` action that `loop()` executes. This keeps blocking SPI/TLS work off the
 > AsyncTCP task and prevents two tasks touching the display at once.
+
+### Connecting an Ambient Weather console (local push)
+
+The ESP32 listens at **`/data/report/`** and ingests the console's "Customized"
+upload — no cloud, no API key, your real backyard sensors every minute. In the
+console's web UI (the *Customized* section):
+
+| Field | Value |
+|-------|-------|
+| Customized | **Enable** |
+| Protocol Type Same As | **AmbientWeather** |
+| Server IP / Hostname | the **ESP32's IP** (give it a static IP / DHCP reservation so it stays put) |
+| Path | `/data/report/` |
+| Port | `80` |
+| Upload Interval | `60` seconds |
+
+The firmware parses `tempf`, `humidity`, `windspeedmph`, `windgustmph`, `winddir`,
+`dailyrainin`, and `baromrelin` from the query string and replies `200 OK`. Your
+existing AmbientWeather.net cloud upload is independent and keeps working. Tap
+**Show Station** on the page to put the live feed on the panel.
 
 ## Panel / constructor notes
 

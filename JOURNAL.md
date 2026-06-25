@@ -60,6 +60,29 @@ history**.
 
 ## Log
 
+### 2026-06-24 — Local Ambient Weather station (push) + layout mockup
+- **Third mode: Backyard Station.** The ESP32 now ingests the Ambient Weather
+  console's "Customized" upload (AmbientWeather protocol) at **`/data/report/`** —
+  fully local, no API key, real backyard sensors. Parses `tempf, humidity,
+  windspeedmph, windgustmph, winddir, dailyrainin, baromrelin` from the query
+  string, stores them in `struct Station st`, replies `200 OK`. Panel **redraws on
+  each push** while in station mode (handler sets `pending=P_STATION`).
+- `drawStation()`: big outdoor temp (left) + stat column (humidity, wind+compass,
+  gust, rain) + pressure, IP bottom-left. `compass()` maps winddir° → 16-point.
+  Shows "Waiting for station data" until the first push arrives.
+- Page gets a **Backyard Station** card (Show Station) + a live summary line;
+  `/station` endpoint queues `P_STATION`. Added `MODE_STATION` / `P_STATION`.
+- **Why push over the AmbientWeather.net cloud API:** no keys, offline-resilient,
+  the console's Customized server field was empty/unused. Cloud upload still runs
+  in parallel, untouched.
+- **Console config** (their device = AMBWeatherPro_V5.2.7): Customized=Enable,
+  Protocol=AmbientWeather, Server=<ESP32 IP>, Path=`/data/report/`, Port=80,
+  Interval=60. ESP32 needs a **stable IP** (DHCP reservation) so the console keeps
+  reaching it — currently DHCP .184. Static-IP-in-firmware not added yet (offered).
+- **Verified** with a simulated push: `tempf=72.5&humidity=68&windspeedmph=8...`
+  → status "Station — 73F, Hum 68%, Wind 8". Real console not yet pointed at it.
+- Also rendered an SVG mockup of the weather-mode panel layout for reference.
+
 ### 2026-06-24 — Fancy weather: OpenWeatherMap + drawn icons
 - **Switched weather source wttr.in → OpenWeatherMap** (current-weather endpoint,
   `units=imperial`). Key lives in `secrets.h` as `OWM_API_KEY` (gitignored). JSON
