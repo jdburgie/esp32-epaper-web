@@ -60,10 +60,11 @@ history**.
 
 ## Log
 
-### 2026-06-24 — IP in both corners + weather detail overflow fix
-- IP label now drawn in **both** bottom corners (lower-left + right-aligned
-  lower-right) in `drawIpLabel()`. Right copy positioned by `len*6` (built-in
-  font glyph width).
+### 2026-06-24 — IP to lower-right + weather detail overflow fix
+- IP label moved to the **lower-right** corner only (`drawIpLabel()`,
+  right-aligned by `len*6`). Briefly tried both corners; user wanted right only.
+- Staying on **DHCP** (no static IP in firmware) — DHCP reservation handles the
+  stable address for the station push.
 - Fixed weather **detail line overflowing** the 250px width (real panel photo
   showed "Wind" with its value cut off): tightened `wx.detail` — dropped the "F"
   after feels, triple→double spaces.

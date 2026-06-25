@@ -105,19 +105,16 @@ String truncate(const String& s, uint8_t n) {
   return s.substring(0, n - 1) + ".";
 }
 
-// ---- Draw the IP in the built-in 6x8 font, in BOTH bottom corners ----
+// ---- Draw the IP in the built-in 6x8 font, bottom-right corner ----
 // Must be called from inside a firstPage/nextPage paged-draw loop. The
 // built-in font (setFont(NULL)) positions by the text's TOP-left; each glyph
-// is 6 px wide, so the right copy is right-aligned by string length.
+// is 6 px wide, so we right-align by string length.
 void drawIpLabel() {
   if (ipText.length() == 0) return;
   display.setFont(NULL);            // classic 6x8 GFX font
   display.setTextSize(1);
   display.setTextColor(GxEPD_BLACK);
-  int y = display.height() - 8;
-  display.setCursor(2, y);                                 // lower-left
-  display.print(ipText);
-  display.setCursor(display.width() - ipText.length() * 6 - 2, y);  // lower-right
+  display.setCursor(display.width() - ipText.length() * 6 - 2, display.height() - 8);
   display.print(ipText);
 }
 
