@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Merged web-app → main; device serves the SPA at /app
+- **Merged `web-app` into `main`** (fast-forward) — `/status.json`, CORS, the SPA,
+  weather views, and the "Message" label are now on main.
+- **Device bundles + serves the web app:** `webapp.h` is auto-generated from
+  `webapp/index.html` (raw string literal, like `logo.h`) and served at **`/app`**.
+  The control page got an **"Open the web app ↗"** link. SPA now defaults its host
+  to `location.origin` when served over http (bundled copy targets the device
+  automatically; standalone file falls back to the .50 guess).
+- Verified: `/app` returns the SPA, link present on `/`. Regen note in webapp/README.
+- (Still unverified on hardware: physical button + battery wiring.)
+
 ### 2026-06-25 — Weather views in the web app (`web-app` branch)
 - Enriched **`/status.json`**: weather now includes `feels/humidity/wind/icon`;
   station includes `gustmph/dailyrain/baromin/winddir`.

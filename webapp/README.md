@@ -5,16 +5,23 @@ phone or laptop — a richer alternative to the minimal page the device serves
 itself. It talks to the device's HTTP API and polls a new `/status.json`
 endpoint for live state (mode, battery, weather, station).
 
-> **Branch:** this lives on the `web-app` branch. It needs the firmware on this
-> branch too (it adds `/status.json` and CORS headers). Flash the branch firmware,
-> then open the app.
-
 ## Run it
-1. Flash the firmware from this branch (adds `/status.json` + `Access-Control-Allow-Origin`).
-2. Open [`index.html`](index.html) — just double-click it, serve it locally
-   (`python -m http.server` in this folder), or host it on GitHub Pages.
-3. Enter the device address (e.g. `http://192.168.12.50`) and hit **Connect**.
-   It's saved in `localStorage` for next time.
+**Easiest — the device serves it.** The firmware bundles this app and serves it at
+**`/app`**, and the device's control page has an **"Open the web app ↗"** link.
+Just browse to the device (e.g. `http://192.168.12.50/`) and click it — no
+hosting, and it auto-targets the device it's served from (same origin, no CORS).
+
+**Standalone** — you can also open [`index.html`](index.html) directly (double-click,
+`python -m http.server`, or GitHub Pages), then enter the device address and hit
+**Connect** (saved in `localStorage`). Cross-origin reads work because the firmware
+sends `Access-Control-Allow-Origin: *`.
+
+> **Regenerating the bundle:** the device serves `webapp.h` (auto-generated from
+> `index.html`). After editing the SPA, regenerate it from the repo root:
+> ```
+> { printf '#pragma once\nconst char WEBAPP_HTML[] = R"WEBAPP(\n'; cat webapp/index.html; printf '\n)WEBAPP";\n'; } > webapp.h
+> ```
+> (prepend the two `// Auto-generated` comment lines if you like), then reflash.
 
 ## What it does
 - **Live status** every 5 s from `/status.json`: current screen, battery %/volts,

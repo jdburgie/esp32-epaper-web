@@ -1,3 +1,7 @@
+// Auto-generated from webapp/index.html — served at /app.
+// Regenerate after editing the SPA (see webapp/README.md).
+#pragma once
+const char WEBAPP_HTML[] = R"WEBAPP(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -194,3 +198,5 @@ setInterval(poll, 5000);
 </script>
 </body>
 </html>
+
+)WEBAPP";

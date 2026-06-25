@@ -32,6 +32,7 @@
 #include <Fonts/FreeSansBold24pt7b.h>
 #include "secrets.h"   // SECRET_SSID / SECRET_PASS / OWM_API_KEY (gitignored)
 #include "logo.h"      // THREEOAKWOODS_BADGE_SVG, served at /logo.svg
+#include "webapp.h"    // WEBAPP_HTML (SPA), served at /app
 
 // POSIX timezone for the clock — Mountain Time (Greeley, CO), auto DST.
 #define TZ_INFO "MST7MDT,M3.2.0,M11.1.0"
@@ -649,6 +650,8 @@ String page() {
     "<button type='submit' class='clear'>Clear Screen</button></form>"
     "<form action='/refresh' method='get' style='flex:1'>"
     "<button type='submit' class='clear'>Clean (de-ghost)</button></form></div>"
+    "<p style='text-align:center;margin:14px 0 4px'>"
+    "<a href='/app' style='color:var(--green);font-weight:800;text-decoration:none'>Open the web app \xE2\x86\x97</a></p>"
     "<footer>Three Oak Woods \xC2\xB7 threeoakwoods.com</footer>"
     "</div></body></html>";
   return h;
@@ -705,6 +708,10 @@ void setup() {
     AsyncWebServerResponse* r = req->beginResponse(200, "image/svg+xml", THREEOAKWOODS_BADGE_SVG);
     r->addHeader("Cache-Control", "max-age=86400");
     req->send(r);
+  });
+
+  server.on("/app", HTTP_GET, [](AsyncWebServerRequest* req){
+    req->send(200, "text/html", WEBAPP_HTML);   // the bundled web app (SPA)
   });
 
   // Handlers only queue work; loop() does the drawing/fetching (off the async task).
