@@ -45,6 +45,9 @@ const char* password = SECRET_PASS;
 #define EPD_DC    19
 #define EPD_RST   16
 #define EPD_BUSY  4
+#define PIN_BTN   27    // momentary button (to GND) — cycles screens
+#define PIN_BATT  34    // 18650 voltage via 2:1 divider (ADC1, input-only)
+#define BATT_RATIO 2.0  // divider multiplier (100k/100k = 2.0)
 
 // ---- Panel: FPC-A002 2.13" 250x122, SSD1680 ----
 // If this comes up blank/garbled, try _213_B74, then _213_B73, then _213_B72.
@@ -88,8 +91,25 @@ String lastReq;    // full dump (method/url/headers/params/body) of last /data/r
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
-enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP, P_CLOCK };
+enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP, P_CLOCK, P_CYCLE };
 volatile Pending pending = P_NONE;
+
+// Battery monitor — auto-shows only when a plausible 18650 voltage is present.
+float battVolts = 0; int battPct = -1; bool battValid = false;
+unsigned long lastBatt = 0;
+const unsigned long BATT_MS = 30UL * 1000UL;
+
+// Screen cycling (auto). Physical button advances manually regardless.
+bool autoCycle = false;
+unsigned long lastCycle = 0;
+const unsigned long CYCLE_MS      = 12UL * 1000UL;   // normal dwell per screen
+const unsigned long TEXT_DWELL_MS = 30UL * 1000UL;   // longer dwell when text has notes
+int btnReading = HIGH, btnStable = HIGH; unsigned long btnTime = 0;
+
+// Text paging — scroll a 4-line window when the message is taller than the panel.
+#define TEXT_VISIBLE_LINES 4
+int textScroll = 0; unsigned long lastScroll = 0;
+const unsigned long SCROLL_MS = 4UL * 1000UL;
 
 unsigned long lastWxFetch = 0;
 const unsigned long WX_REFRESH_MS = 5UL * 60UL * 1000UL;  // refresh weather every 5 min
@@ -126,6 +146,37 @@ String truncate(const String& s, uint8_t n) {
   return s.substring(0, n - 1) + ".";
 }
 
+// ---- Battery: read the 18650 via the divider; auto-detect if wired ----
+void readBattery() {
+  uint32_t mv = analogReadMilliVolts(PIN_BATT);   // factory-calibrated on ESP32
+  float v = mv * BATT_RATIO / 1000.0;
+  if (v > 2.8 && v < 4.5) {                        // plausible cell -> battery present
+    battVolts = v;
+    battPct   = constrain((int)round((v - 3.30) / (4.20 - 3.30) * 100.0), 0, 100);
+    battValid = true;
+  } else {
+    battValid = false;                             // floating pin / no cell -> hide
+  }
+}
+
+// ---- Line helpers for the text screen ----
+uint8_t lineCount(const String& s) {
+  uint8_t n = 1;
+  for (uint16_t i = 0; i < s.length(); i++) if (s[i] == '\n') n++;
+  return n;
+}
+String nthLine(const String& s, uint8_t n) {
+  int start = 0;
+  for (uint8_t i = 0; i < n; i++) {
+    int nl = s.indexOf('\n', start);
+    if (nl < 0) return "";
+    start = nl + 1;
+  }
+  int nl = s.indexOf('\n', start);
+  return (nl < 0) ? s.substring(start) : s.substring(start, nl);
+}
+bool hasNotes() { String t = currentText; t.trim(); return t.length() > 0; }
+
 // Push a line onto the small in-memory request log shown at /debug.
 void logReq(const String& s) {
   reqLog = s + "\n" + reqLog;
@@ -142,17 +193,29 @@ String fromBody(const String& body, const char* key) {
   return body.substring(i, e < 0 ? body.length() : e);
 }
 
-// ---- Draw the IP in the built-in 6x8 font, bottom-right corner ----
-// Must be called from inside a firstPage/nextPage paged-draw loop. The
-// built-in font (setFont(NULL)) positions by the text's TOP-left; each glyph
-// is 6 px wide, so we right-align by string length.
-void drawIpLabel() {
-  if (ipText.length() == 0) return;
-  display.setFont(NULL);            // classic 6x8 GFX font
+// ---- Overlays drawn on every screen: IP (bottom-right) + battery (top-right) ----
+// Call from inside a firstPage/nextPage loop. Built-in 6x8 font; 6 px/glyph.
+void drawOverlays() {
+  display.setFont(NULL);
   display.setTextSize(1);
   display.setTextColor(GxEPD_BLACK);
-  display.setCursor(display.width() - ipText.length() * 6 - 2, display.height() - 8);
-  display.print(ipText);
+
+  // IP, bottom-right
+  if (ipText.length())
+    { display.setCursor(display.width() - ipText.length() * 6 - 2, display.height() - 8);
+      display.print(ipText); }
+
+  // Battery, top-right: "82% [###  ]"
+  if (battValid) {
+    String p = String(battPct) + "%";
+    int by = 2, bodyW = 16, bodyH = 9;
+    int iconX = display.width() - bodyW - 4;          // leave 2px for the nub
+    int pctX  = iconX - (int)p.length() * 6 - 3;
+    display.setCursor(pctX, by + 1); display.print(p);
+    display.drawRect(iconX, by, bodyW, bodyH, GxEPD_BLACK);
+    display.fillRect(iconX + bodyW, by + 2, 2, bodyH - 4, GxEPD_BLACK);   // nub
+    display.fillRect(iconX + 1, by + 1, (bodyW - 2) * battPct / 100, bodyH - 2, GxEPD_BLACK);
+  }
 }
 
 // ---- Blank the panel to all-white (IP label stays) ----
@@ -162,52 +225,49 @@ void clearDisplay() {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-    drawIpLabel();
+    drawOverlays();
   } while (display.nextPage());
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
 
-// ---- Draw msg, honoring '\n' line breaks, block-centered ----
+// ---- Draw msg with '\n' line breaks. Centers if <=4 lines; otherwise scrolls
+//      a 4-line window (start line = textScroll) with a page indicator. ----
 void drawText(const String& msg) {
   display.setRotation(1);
   display.setTextColor(GxEPD_BLACK);
   display.setFullWindow();
 
-  // Count lines so we can center the whole block vertically.
-  uint8_t lines = 1;
-  for (uint16_t i = 0; i < msg.length(); i++)
-    if (msg[i] == '\n') lines++;
+  uint8_t total     = lineCount(msg);
+  bool    scroll    = total > TEXT_VISIBLE_LINES;
+  uint8_t shown     = scroll ? TEXT_VISIBLE_LINES : total;
+  uint8_t startLine = scroll ? (uint8_t)(textScroll % total) : 0;
 
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
+    display.setFont(&FreeSansBold12pt7b);   // re-select each page; overlays use the small font
 
-    // Re-select the big font each page: drawIpLabel() switches to the small
-    // built-in font, and paged drawing reruns this whole block per page.
-    display.setFont(&FreeSansBold12pt7b);
+    int16_t yTop = scroll ? 4 : (display.height() - shown * LINE_HEIGHT) / 2;
 
-    uint16_t blockH = lines * LINE_HEIGHT;
-    int16_t  yTop   = (display.height() - blockH) / 2;  // top of first line's box
-
-    int start = 0;
-    for (uint8_t ln = 0; ln < lines; ln++) {
-      int nl = msg.indexOf('\n', start);
-      String line = (nl < 0) ? msg.substring(start) : msg.substring(start, nl);
-      start = (nl < 0) ? msg.length() : nl + 1;
-
-      // Center this line horizontally.
+    for (uint8_t k = 0; k < shown; k++) {
+      String line = nthLine(msg, scroll ? (uint8_t)((startLine + k) % total) : k);
       int16_t tbx, tby; uint16_t tbw, tbh;
       display.getTextBounds(line, 0, 0, &tbx, &tby, &tbw, &tbh);
       int16_t x = (display.width() - tbw) / 2 - tbx;
-      // Baseline: top of this line's box, shifted down past the glyph ascent.
-      int16_t y = yTop + ln * LINE_HEIGHT - tby;
+      int16_t y = yTop + k * LINE_HEIGHT - tby;
       display.setCursor(x, y);
       display.print(line);
     }
 
-    drawIpLabel();  // always overlay the IP at bottom-left
+    if (scroll) {   // "start/total" page indicator, bottom-left
+      display.setFont(NULL); display.setTextSize(1);
+      display.setCursor(2, display.height() - 8);
+      display.print(String(startLine + 1) + "/" + String(total));
+    }
+
+    drawOverlays();
   } while (display.nextPage());
-  display.hibernate();  // panel sleeps between updates -> no burn-in
+  display.hibernate();
 }
 
 // ===== Weather icons: 1-bit glyphs drawn with GFX primitives, centered (cx,cy) =====
@@ -335,7 +395,7 @@ void drawWeather() {
     display.setCursor(5, 106);
     display.print(wx.detail);
 
-    drawIpLabel();  // IP stays bottom-left
+    drawOverlays();  // IP stays bottom-left
   } while (display.nextPage());
   display.hibernate();
 }
@@ -422,7 +482,7 @@ void drawStation() {
       display.print(String(st.baromin, 2) + " inHg");
     }
 
-    drawIpLabel();
+    drawOverlays();
   } while (display.nextPage());
   display.hibernate();
 }
@@ -473,7 +533,7 @@ void drawClock() {
       display.setCursor((display.width() - bw) / 2 - bx, 95);
       display.print(db);
     }
-    drawIpLabel();
+    drawOverlays();
   } while (display.nextPage());
   display.hibernate();
   if (haveTime) lastClockMin = ti.tm_min;
@@ -483,6 +543,7 @@ void drawClock() {
 void saveState() {
   prefs.putInt("mode", (int)mode);
   prefs.putString("zip", weatherZip);
+  prefs.putBool("cycle", autoCycle);
 }
 
 // ---- Redraw whatever the current mode should show ----
@@ -491,6 +552,24 @@ void redrawCurrent() {
   else if (mode == MODE_STATION) drawStation();
   else if (mode == MODE_CLOCK)   drawClock();
   else                           drawText(currentText);
+}
+
+// ---- Switch to a mode (resets its per-mode timers) and redraw ----
+void enterMode(DisplayMode m) {
+  mode = m;
+  if (m == MODE_STATION) { stationModeSince = millis(); lastWaitDraw = 0; }
+  if (m == MODE_TEXT)    { textScroll = 0; lastScroll = millis(); }
+  saveState();
+  redrawCurrent();
+  lastCycle = millis();
+}
+
+// ---- Advance to the next screen in the cycle order ----
+void cycleScreen() {
+  static const DisplayMode order[4] = { MODE_CLOCK, MODE_TEXT, MODE_WEATHER, MODE_STATION };
+  int idx = 0;
+  for (int i = 0; i < 4; i++) if (order[i] == mode) idx = i;
+  enterMode(order[(idx + 1) % 4]);
 }
 
 // ---- Three Oak Woods themed control page ----
@@ -535,11 +614,16 @@ String page() {
     "</style></head><body><div class='wrap'>"
     "<header><img src='/logo.svg' alt='Three Oak Woods'>"
     "<div><div class='sub'>Three Oak Woods</div><h1>E-Paper Display</h1></div></header>"
-    "<div class='status'>Currently showing: <b>" + status + "</b></div>"
+    "<div class='status'>Currently showing: <b>" + status + "</b>" +
+      (battValid ? ("<br>Battery: " + String(battPct) + "% (" + String(battVolts, 2) + " V)") : String("")) +
+      "<br>Auto-cycle: <b>" + String(autoCycle ? "ON" : "off") + "</b></div>"
+    "<div style='display:flex;gap:10px;margin:0 0 16px'>"
+    "<form action='/next' method='get' style='flex:1'><button type='submit' class='clear'>Next screen \xE2\x86\x92</button></form>"
+    "<form action='/cycle' method='get' style='flex:1'><button type='submit'>" + String(autoCycle ? "Stop cycling" : "Auto-cycle") + "</button></form></div>"
     "<div class='card'><h2>Text</h2>"
     "<form action='/set' method='get'>"
-    "<label>Message</label>"
-    "<textarea name='msg' rows='4' maxlength='120' placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
+    "<label>Message (scrolls if over 4 lines)</label>"
+    "<textarea name='msg' rows='6' maxlength='400' placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
     "<button type='submit'>Update Display</button></form>"
     "<form action='/clock' method='get'><button type='submit' class='clear'>Show Clock (default)</button></form></div>"
     "<div class='card'><h2>Weather</h2>"
@@ -565,6 +649,8 @@ void setup() {
   Serial.begin(115200);
 
   display.init(115200);
+  pinMode(PIN_BTN, INPUT_PULLUP);   // momentary button to GND
+  readBattery();                    // so the first draw shows battery if wired
 
   WiFi.mode(WIFI_STA);
 #ifdef USE_STATIC_IP
@@ -587,6 +673,7 @@ void setup() {
   // otherwise fall to the default clock view.
   prefs.begin("epaper", false);
   weatherZip = prefs.getString("zip", "");
+  autoCycle  = prefs.getBool("cycle", false);
   int savedMode = prefs.getInt("mode", MODE_CLOCK);
   if (savedMode == MODE_WEATHER && weatherZip.length()) {
     mode = MODE_WEATHER;
@@ -616,6 +703,7 @@ void setup() {
       if (currentText.length() == 0) currentText = " ";
     }
     mode = MODE_TEXT;
+    textScroll = 0; lastScroll = millis();
     saveState();
     pending = P_TEXT;
     req->redirect("/");
@@ -647,6 +735,18 @@ void setup() {
 
   server.on("/refresh", HTTP_GET, [](AsyncWebServerRequest* req){
     pending = P_DEEP;              // de-ghost, then redraw current mode
+    req->redirect("/");
+  });
+
+  server.on("/next", HTTP_GET, [](AsyncWebServerRequest* req){
+    pending = P_CYCLE;            // advance one screen (drawn in loop)
+    req->redirect("/");
+  });
+
+  server.on("/cycle", HTTP_GET, [](AsyncWebServerRequest* req){
+    autoCycle = !autoCycle;
+    prefs.putBool("cycle", autoCycle);
+    lastCycle = millis();
     req->redirect("/");
   });
 
@@ -740,7 +840,33 @@ void loop() {
     else if (job == P_STATION) drawStation();
     else if (job == P_CLOCK)   drawClock();
     else if (job == P_CLEAR)   clearDisplay();
+    else if (job == P_CYCLE)   cycleScreen();
     else if (job == P_DEEP)    { deepRefresh(); redrawCurrent(); lastDeep = millis(); }
+  }
+
+  // Battery sample (cheap; just gates whether the overlay shows).
+  if (millis() - lastBatt > BATT_MS) { readBattery(); lastBatt = millis(); }
+
+  // Physical button (active-low, debounced) -> next screen.
+  int reading = digitalRead(PIN_BTN);
+  if (reading != btnReading) { btnReading = reading; btnTime = millis(); }
+  if (millis() - btnTime > 40 && reading != btnStable) {
+    btnStable = reading;
+    if (btnStable == LOW) cycleScreen();
+  }
+
+  // Auto-cycle: advance on a timer; dwell longer on the text screen when it has notes.
+  if (autoCycle) {
+    unsigned long dwell = (mode == MODE_TEXT && hasNotes()) ? TEXT_DWELL_MS : CYCLE_MS;
+    if (millis() - lastCycle > dwell) cycleScreen();
+  }
+
+  // Scroll the text screen when the message is taller than the panel.
+  if (mode == MODE_TEXT && lineCount(currentText) > TEXT_VISIBLE_LINES &&
+      millis() - lastScroll > SCROLL_MS) {
+    textScroll++;
+    lastScroll = millis();
+    drawText(currentText);
   }
 
   // Keep weather fresh while it's the active mode.

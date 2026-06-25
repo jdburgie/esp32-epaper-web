@@ -60,6 +60,26 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Battery %, button cycling, auto-cycle, text scroll; case v2
+- **Battery indicator:** GPIO34 via 2:1 divider, `analogReadMilliVolts`, mapped
+  3.30–4.20 V → 0–100%. `readBattery()` auto-detects (shows only when plausible),
+  battery glyph + % top-right of every screen (`drawOverlays`, renamed from
+  `drawIpLabel`). `BATT_RATIO` configurable.
+- **Physical button** GPIO27 `INPUT_PULLUP` → debounced in loop → `cycleScreen()`
+  (Clock→Text→Weather→Station). Web equivalents: `/next` (P_CYCLE) and `/cycle`
+  (toggle autoCycle, persisted to NVS "cycle").
+- **Auto-cycle:** advances every `CYCLE_MS` (12 s), but `TEXT_DWELL_MS` (30 s) when
+  on text with notes (`hasNotes()`).
+- **Text scrolling:** `drawText` pages a 4-line window (`textScroll`, `lineCount`,
+  `nthLine`) with a `n/total` indicator when >4 lines; `loop` advances every 4 s.
+  Textarea bumped to rows=6/maxlength=400.
+- **Enclosure v2:** added `btn_d` top button hole, `stand` part (easel/kickstand),
+  optional `wall_mount` keyholes. STLs re-rendered (shell/front/stand), preview
+  updated. Battery-sense + button wiring documented in enclosure/README.
+- Verified on device via web: Clock→Text cycle, auto-cycle on/off, 6-line text set
+  (scrolls). Button + battery are hardware-gated (logic in place, not yet wired).
+- **Next:** `web-app` branch for a browser SPA hitting the device API.
+
 ### 2026-06-25 — Battery (18650 + load sharing) + 3D-printed enclosure
 - Added an **`enclosure/`** project: parametric OpenSCAD case (`epaper-case.scad`)
   → shell + front plate, rendered to STLs (clean 2-manifold, no supports). Holds

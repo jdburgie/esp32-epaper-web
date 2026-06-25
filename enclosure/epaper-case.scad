@@ -56,6 +56,13 @@ chg_w   = 25.0;        // board width
 usb_w   = 12.0;        // charge-port cutout width  (bottom wall)
 usb_h   = 7.0;         // charge-port cutout height
 sw_d    = 7.0;         // power-switch hole dia on a side wall (0 = omit)
+btn_d   = 12.0;        // cycle-button hole dia on the TOP wall (0 = omit)
+
+/* [Mounting] */
+wall_mount = false;    // true = add 2 keyhole slots in the back wall
+km_dx      = 28.0;     // keyhole spacing from centre (X)
+km_y       = 0.0;      // keyhole height offset (Y) — nudge clear of components
+stand_tilt = 15;       // easel lean-back angle for the `stand` part
 
 /* [Corner screws] */
 scr_d      = 2.6;      // self-tap shaft into the posts (M2.5/M3 self-tapping)
@@ -94,6 +101,17 @@ module rbox(x, y, z, r) {            // rounded box, sits on z=0, centred in XY
       square([x, y], center=true);
 }
 
+// Wall-mount keyhole: big head hole + a slot the screw shank slides up into.
+// Cut through the back wall. NOTE: the head sits inside the cavity, so keep
+// km_y clear of the battery/ESP, or just use the `stand` part instead.
+module keyhole() {
+  union() {
+    cylinder(d=8, h=wall*3, center=true);                                   // head
+    hull() { cylinder(d=4, h=wall*3, center=true);
+             translate([0,8,0]) cylinder(d=4, h=wall*3, center=true); }     // shank slot
+  }
+}
+
 // ---------------------------------------------------------------------------
 //  SHELL  (back + walls + internal mounts)
 // ---------------------------------------------------------------------------
@@ -110,6 +128,13 @@ module shell() {
     if (sw_d > 0)
       translate([out_x/2, esp_cy, wall + esp_h/2])
         rotate([0,90,0]) cylinder(d=sw_d, h=wall*4, center=true);
+    // optional cycle-button hole on the top wall (+Y)
+    if (btn_d > 0)
+      translate([0, out_y/2, wall + inner_z*0.5])
+        rotate([90,0,0]) cylinder(d=btn_d, h=wall*4, center=true);
+    // optional wall-mount keyholes in the back wall (z=0)
+    if (wall_mount)
+      for (sx=[-1,1]) translate([sx*km_dx, km_y, 0]) keyhole();
   }
 
   // corner posts (full depth, pilot-drilled for the front screws)
@@ -162,11 +187,35 @@ module front() {
 }
 
 // ---------------------------------------------------------------------------
+//  STAND  (separate easel — the assembled case slots in, leaning back)
+// ---------------------------------------------------------------------------
+module stand() {
+  rest_h = shell_z + front_t + 14;          // back rest height
+  lip_h  = 9;                               // front lip height
+  channel = inner_z + front_t + 3;          // slot the case bottom drops into
+  rest_y = 8;
+  lip_y  = rest_y + channel;
+  d      = lip_y + wall*2 + 4;              // foot depth
+  translate([-out_x/2, -d/2, 0]) {
+    cube([out_x, d, wall*2]);                                   // foot
+    translate([0, lip_y, 0]) cube([out_x, wall*2, lip_h]);      // front lip
+    translate([0, rest_y, 0]) rotate([stand_tilt,0,0])          // angled back rest
+      cube([out_x, wall*2, rest_h]);
+    // side gussets for rigidity
+    for (sx=[0, out_x-wall*1.5])
+      translate([sx, rest_y, 0]) rotate([stand_tilt,0,0])
+        cube([wall*1.5, wall*2, rest_h*0.6]);
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Output
 // ---------------------------------------------------------------------------
 if (part == "shell") shell();
 else if (part == "front") front();
-else {                                  // "all": preview both, front opened up
+else if (part == "stand") stand();
+else {                                  // "all": preview shell + front + stand
   shell();
   translate([0, out_y + 8, front_t]) rotate([0,180,0]) color("LightSteelBlue") front();
+  translate([0, -out_y - 35, 0]) color("Khaki") stand();
 }

@@ -10,6 +10,7 @@ Files:
 - [`epaper-case.scad`](epaper-case.scad) — parametric source (edit the dims to fit your parts)
 - `epaper-case-shell.stl` — the body (electronics + battery)
 - `epaper-case-front.stl` — the front plate / display bezel
+- `epaper-case-stand.stl` — desk easel/kickstand (the case slots in, tilted back)
 
 ---
 
@@ -47,6 +48,22 @@ over USB and outputs a boosted 5 V with pass-through. It auto-shuts-off below
                   5V OUT ──► ESP32  VIN     (5 V pin)
                   GND    ──► ESP32  GND
 ```
+
+### Cycle button + battery sense (optional firmware features)
+```
+  Button:   ESP32 GPIO27 ──[ momentary button ]── GND     (internal pull-up; tap = next screen)
+
+  Battery:  18650 (+) ──[ 100k ]──┬──► ESP32 GPIO34
+                                  [ 100k ]
+                                    │
+                                   GND
+```
+- **Button** mounts in the case's **top hole** (`btn_d`). A short press cycles
+  Clock → Text → Weather → Station. (GPIO27 is configured `INPUT_PULLUP`.)
+- **Battery sense**: the 100k/100k divider halves the cell voltage into GPIO34
+  (an input-only ADC pin). The firmware auto-detects it — the battery % overlay
+  appears only when a plausible voltage is present, so it's safe to leave
+  unwired. Tune `BATT_RATIO` in the sketch if you use different resistors.
 - Charge through the **charger module's** USB port (routed to the case's bottom
   slot) — *not* the ESP32's USB.
 - Optional: put the SPST switch in the **5 V OUT** line (or the module's EN pin)
@@ -65,6 +82,14 @@ of hours? That needs a deep-sleep architecture (and giving up the live server).
 > charge.
 
 ---
+
+## Mounting
+
+- **Desk easel (kickstand):** print `epaper-case-stand.stl` (or `part="stand"`).
+  The assembled case drops into the channel and leans back `stand_tilt`° (15° default).
+- **Wall mount:** set `wall_mount = true` to add two keyhole slots in the back
+  wall, then re-render the shell. ⚠️ The screw heads sit *inside* the cavity, so
+  move `km_y` clear of the battery/ESP — or just use the easel.
 
 ## Printing
 

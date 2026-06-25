@@ -107,6 +107,17 @@ to scrub e-paper ghosting; the same scrub runs automatically every 6 hours.
 loss the panel restores itself — a remembered ZIP boots straight back to that
 weather view; otherwise it boots to the clock.
 
+**Controls & extras:**
+- **Physical button** (GPIO27 → GND) cycles Clock → Text → Weather → Station. Also
+  on the page: **Next screen** and an **Auto-cycle** toggle.
+- **Auto-cycle** advances the screen on a timer (~12 s), but **dwells longer (~30 s)
+  on the text screen when it has notes**.
+- **Text scrolling:** messages taller than 4 lines page through a 4-line window
+  (with a `start/total` indicator).
+- **Battery indicator:** an 18650 sensed on GPIO34 (via a 2:1 divider) shows a
+  battery % in the top-right of every screen — auto-hidden when no cell is wired.
+  See [`enclosure/`](enclosure/) for the battery + charger build.
+
 Weather comes from **[OpenWeatherMap](https://openweathermap.org/api)** (current-
 weather endpoint, `units=imperial`). Put a free API key in `secrets.h` as
 `OWM_API_KEY`. The JSON response is parsed with ArduinoJson; the fetch uses HTTPS
