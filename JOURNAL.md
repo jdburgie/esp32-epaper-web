@@ -44,6 +44,7 @@ history**.
 |------|---------|
 | `esp32-epaper-web.ino` | The sketch (Wi-Fi + async web server + GxEPD2 draw). |
 | `secrets.h` | Wi-Fi creds. **Gitignored** — recreate per machine (see above). |
+| `logo.h` | Three Oak Woods badge SVG (from oaklink/branding), served at `/logo.svg`. |
 | `platformio.ini` | PlatformIO build/flash config (env `esp32dev`). |
 | `README.md` | Hardware, wiring, library list, panel-constructor notes. |
 | `JOURNAL.md` | This file. |
@@ -57,6 +58,30 @@ history**.
 ---
 
 ## Log
+
+### 2026-06-24 — Weather mode + Three Oak Woods themed page
+- **Two display modes:** Text (existing) and **Weather**. The page now has a Text
+  card and a Weather card; the Weather card asks for a US **ZIP** ("Show Weather"),
+  which is how you switch into weather mode. `mode` (MODE_TEXT/MODE_WEATHER) +
+  `weatherZip`/`weatherText` track state.
+- **Weather source:** wttr.in, **no API key** — takes the ZIP directly and returns
+  a one-line `%l|%t|%C` format we split (no JSON lib). HTTPS via `WiFiClientSecure`
+  + `setInsecure()`, `User-Agent: curl/*` so wttr returns plain text. Output is
+  ASCII-filtered (`asciiOnly()`) to drop the degree sign / wind arrows the 12pt
+  font can't render. Panel shows ZIP / temp / condition; **auto-refresh every 15
+  min** while in weather mode. (wttr.in echoes the ZIP as the location label, so
+  line 1 is the ZIP, not the city name — could fetch the city separately later.)
+- **Concurrency fix:** web handlers no longer draw/fetch inline. They set a
+  `Pending` action (P_TEXT/P_WEATHER/P_CLEAR) and `loop()` executes it. Keeps
+  blocking SPI/TLS off the AsyncTCP task and avoids two tasks hitting the display.
+- **Three Oak Woods theme:** page restyled with the company palette (Forest Green
+  `#2C654B`, Cream, Acorn Amber, Bark, Parchment), Nunito font, and the acorn
+  **badge logo** (`logo.h`, served at `/logo.svg`) in the header + as favicon.
+  Assets/colors pulled from `oaklink/branding/`.
+- **Verified on hardware:** ZIP 94103 → "94103 / 68F / Partly Cloudy" drawn; text
+  mode round-trips; page + logo + favicon serve correctly. Firmware ~1 MB now
+  (TLS stack). Note: opening `pio device monitor` resets the board (DTR/RTS), so
+  test HTTP endpoints *without* a monitor attached, or expect a reboot race.
 
 ### 2026-06-24 — Persistent IP label + README/repo refresh
 - **IP on panel:** the device IP now renders in the built-in 6x8 font at the

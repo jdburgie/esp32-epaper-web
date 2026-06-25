@@ -20,10 +20,13 @@
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include <ESPAsyncWebServer.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include "secrets.h"   // SECRET_SSID / SECRET_PASS (gitignored)
+#include "logo.h"      // THREEOAKWOODS_BADGE_SVG, served at /logo.svg
 
 // ---- Wi-Fi ----
 const char* ssid     = SECRET_SSID;
@@ -42,11 +45,38 @@ GxEPD2_BW<GxEPD2_213_BN, GxEPD2_213_BN::HEIGHT> display(
 
 AsyncWebServer server(80);
 
-String currentText = "Hello World!";
-String ipText      = "";  // set once Wi-Fi connects; shown bottom-left always
+String currentText  = "Hello World!";
+String ipText       = "";   // set once Wi-Fi connects; shown bottom-left always
+
+// ---- Display mode + weather state ----
+enum DisplayMode { MODE_TEXT, MODE_WEATHER };
+DisplayMode mode    = MODE_TEXT;
+String weatherZip   = "";   // last ZIP requested
+String weatherText  = "";   // short summary, shown on the web page
+
+// All panel drawing + the weather fetch run from loop(), never inside an async
+// web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
+// avoids two tasks touching the display at once. Handlers just queue an action.
+enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR };
+volatile Pending pending = P_NONE;
+
+unsigned long lastWxFetch = 0;
+const unsigned long WX_REFRESH_MS = 15UL * 60UL * 1000UL;  // refresh weather every 15 min
 
 // Line spacing for FreeSansBold12pt7b (~17px glyphs + breathing room).
 #define LINE_HEIGHT 22
+
+// Keep only printable ASCII (0x20-0x7E). The 12pt font has no glyphs for the
+// degree sign / wind arrows wttr.in returns, so strip them before drawing.
+String asciiOnly(const String& s) {
+  String out; out.reserve(s.length());
+  for (uint16_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c >= 0x20 && c <= 0x7E) out += c;
+  }
+  out.trim();
+  return out;
+}
 
 // ---- Draw the IP in the built-in 6x8 font, bottom-left corner ----
 // Must be called from inside a firstPage/nextPage paged-draw loop. The
@@ -115,25 +145,103 @@ void drawText(const String& msg) {
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
 
-// ---- Minimal HTML page ----
+// ---- Fetch weather for weatherZip from wttr.in and draw it ----
+// wttr.in takes a US ZIP directly and, with ?format=, returns one line we can
+// split — no JSON parser needed. Format "%l|%t|%C" -> "City, State, ...|+72F|Sunny".
+void fetchAndDrawWeather() {
+  if (weatherZip.length() == 0) { drawText("Enter a ZIP\nfor weather"); return; }
+
+  String url = "https://wttr.in/" + weatherZip + "?format=%l|%t|%C";
+  WiFiClientSecure client;
+  client.setInsecure();              // skip cert validation (home project)
+  HTTPClient http;
+  http.setConnectTimeout(8000);
+  http.setTimeout(8000);
+  String body;
+  int code = -1;
+  if (http.begin(client, url)) {
+    http.addHeader("User-Agent", "curl/8.0");   // wttr.in gives plain text to curl-like UAs
+    code = http.GET();
+    if (code == HTTP_CODE_OK) body = http.getString();
+    http.end();
+  }
+
+  body.trim();
+  if (code != HTTP_CODE_OK || body.length() == 0 || body.startsWith("Unknown location")) {
+    weatherText = "unavailable (ZIP " + weatherZip + ")";
+    drawText("Weather\nunavailable\nZIP " + weatherZip);
+    Serial.printf("Weather fetch failed: code=%d body=%s\n", code, body.c_str());
+    return;
+  }
+
+  // Split "loc|temp|cond" on '|'.
+  int p1 = body.indexOf('|');
+  int p2 = body.indexOf('|', p1 + 1);
+  String loc  = (p1 < 0) ? body : body.substring(0, p1);
+  String temp = (p1 < 0) ? "" : body.substring(p1 + 1, p2 < 0 ? body.length() : p2);
+  String cond = (p2 < 0) ? "" : body.substring(p2 + 1);
+
+  String city = loc.substring(0, loc.indexOf(',') < 0 ? loc.length() : loc.indexOf(','));
+  city = asciiOnly(city);
+  temp = asciiOnly(temp); temp.replace("+", "");   // "+72F" -> "72F"
+  cond = asciiOnly(cond);
+
+  weatherText = city + " " + temp + ", " + cond;   // for the web page
+  drawText(city + "\n" + temp + "\n" + cond);       // City / temp / condition
+  Serial.println("Weather: " + weatherText);
+}
+
+// ---- Three Oak Woods themed control page ----
 String page() {
-  String h = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-             "<title>E-Paper</title>"
-             "<style>body{font-family:sans-serif;max-width:480px;margin:40px auto;padding:0 16px}"
-             "textarea,button{font-size:1.1em;padding:10px;width:100%;box-sizing:border-box;margin:6px 0}"
-             "textarea{resize:vertical}"
-             "button{background:#222;color:#fff;border:0;border-radius:6px;cursor:pointer}"
-             "button.clear{background:#fff;color:#222;border:1px solid #ccc}</style></head><body>"
-             "<h2>E-Paper Display</h2>"
-             "<p>Currently showing: <b>" + currentText + "</b></p>"
-             "<form action='/set' method='get'>"
-             "<textarea name='msg' rows='4' maxlength='120' "
-             "placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
-             "<button type='submit'>Update Display</button></form>"
-             "<form action='/clear' method='get'>"
-             "<button type='submit' class='clear'>Clear Screen</button></form>"
-             "</body></html>";
+  String status = (mode == MODE_WEATHER)
+      ? ("Weather \xE2\x80\x94 " + (weatherText.length() ? weatherText : ("ZIP " + weatherZip)))
+      : currentText;
+
+  String h =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>Three Oak Woods Display</title>"
+    "<link rel='icon' type='image/svg+xml' href='/logo.svg'>"
+    "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+    "<link href='https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap' rel='stylesheet'>"
+    "<style>"
+    ":root{--green:#2C654B;--cream:#F9E7DF;--amber:#C8852A;--bark:#2B3A33;--parchment:#F5F1E6}"
+    "*{box-sizing:border-box}"
+    "body{font-family:'Nunito',system-ui,sans-serif;color:var(--bark);background:var(--parchment);margin:0;padding:0 16px 40px}"
+    ".wrap{max-width:480px;margin:0 auto}"
+    "header{display:flex;align-items:center;gap:14px;padding:22px 0 8px}"
+    "header img{width:56px;height:56px}"
+    "header h1{font-size:1.25em;font-weight:800;margin:0;line-height:1.1}"
+    "header .sub{color:var(--green);font-weight:700;font-size:.78em;letter-spacing:.05em;text-transform:uppercase}"
+    ".status{background:var(--cream);border-left:4px solid var(--amber);border-radius:8px;padding:10px 14px;margin:6px 0 18px;white-space:pre-wrap}"
+    ".card{background:#fff;border:1px solid #e6ddca;border-radius:12px;padding:16px;margin:0 0 16px;box-shadow:0 1px 2px rgba(43,58,51,.06)}"
+    ".card h2{margin:0 0 10px;font-size:1.05em;color:var(--green)}"
+    "label{font-weight:700;font-size:.9em;display:block;margin:0 0 4px}"
+    "textarea,input,button{font-family:inherit;font-size:1.05em;padding:11px;width:100%;border-radius:8px;border:1px solid #cfc6b3;margin:4px 0}"
+    "textarea{resize:vertical}"
+    "button{border:0;background:var(--green);color:var(--cream);font-weight:800;cursor:pointer}"
+    "button:hover{filter:brightness(1.08)}"
+    "button.amber{background:var(--amber)}"
+    "button.clear{background:#fff;color:var(--bark);border:1px solid #cfc6b3;font-weight:700}"
+    "footer{text-align:center;color:var(--green);font-size:.8em;margin-top:8px;opacity:.85}"
+    "</style></head><body><div class='wrap'>"
+    "<header><img src='/logo.svg' alt='Three Oak Woods'>"
+    "<div><div class='sub'>Three Oak Woods</div><h1>E-Paper Display</h1></div></header>"
+    "<div class='status'>Currently showing: <b>" + status + "</b></div>"
+    "<div class='card'><h2>Text</h2>"
+    "<form action='/set' method='get'>"
+    "<label>Message</label>"
+    "<textarea name='msg' rows='4' maxlength='120' placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
+    "<button type='submit'>Update Display</button></form></div>"
+    "<div class='card'><h2>Weather</h2>"
+    "<form action='/weather' method='get'>"
+    "<label>ZIP code</label>"
+    "<input name='zip' inputmode='numeric' pattern='[0-9]{5}' maxlength='5' required placeholder='e.g. 94103' value='" + weatherZip + "'>"
+    "<button type='submit' class='amber'>Show Weather</button></form></div>"
+    "<form action='/clear' method='get'>"
+    "<button type='submit' class='clear'>Clear Screen</button></form>"
+    "<footer>Three Oak Woods \xC2\xB7 threeoakwoods.com</footer>"
+    "</div></body></html>";
   return h;
 }
 
@@ -157,25 +265,54 @@ void setup() {
     req->send(200, "text/html", page());
   });
 
+  server.on("/logo.svg", HTTP_GET, [](AsyncWebServerRequest* req){
+    AsyncWebServerResponse* r = req->beginResponse(200, "image/svg+xml", THREEOAKWOODS_BADGE_SVG);
+    r->addHeader("Cache-Control", "max-age=86400");
+    req->send(r);
+  });
+
+  // Handlers only queue work; loop() does the drawing/fetching (off the async task).
   server.on("/set", HTTP_GET, [](AsyncWebServerRequest* req){
     if (req->hasParam("msg")) {
       currentText = req->getParam("msg")->value();
       currentText.replace("\r", "");  // textareas send \r\n; keep just \n
       if (currentText.length() == 0) currentText = " ";
     }
-    req->redirect("/");   // respond first so the browser doesn't hang
-    drawText(currentText); // then redraw (~2s)
+    mode = MODE_TEXT;
+    pending = P_TEXT;
+    req->redirect("/");
+  });
+
+  server.on("/weather", HTTP_GET, [](AsyncWebServerRequest* req){
+    if (req->hasParam("zip")) weatherZip = req->getParam("zip")->value();
+    mode = MODE_WEATHER;
+    pending = P_WEATHER;
+    req->redirect("/");
   });
 
   server.on("/clear", HTTP_GET, [](AsyncWebServerRequest* req){
-    currentText = " ";
-    req->redirect("/");   // respond first so the browser doesn't hang
-    clearDisplay();       // then blank the panel
+    pending = P_CLEAR;
+    req->redirect("/");
   });
 
   server.begin();
 }
 
 void loop() {
-  // AsyncWebServer runs in the background; nothing needed here.
+  // Execute whatever the web handlers queued (blocking SPI/TLS work lives here).
+  Pending job = pending;
+  if (job != P_NONE) {
+    pending = P_NONE;
+    if      (job == P_TEXT)    drawText(currentText);
+    else if (job == P_WEATHER) { fetchAndDrawWeather(); lastWxFetch = millis(); }
+    else if (job == P_CLEAR)   clearDisplay();
+  }
+
+  // Keep weather fresh while it's the active mode.
+  if (mode == MODE_WEATHER && millis() - lastWxFetch > WX_REFRESH_MS) {
+    fetchAndDrawWeather();
+    lastWxFetch = millis();
+  }
+
+  delay(20);
 }

@@ -62,8 +62,27 @@ The sketch `#include`s this file and reads `SECRET_SSID` / `SECRET_PASS` — you
   select your ESP32 board + port, and upload.
 
 **3. Use it.** Open the serial monitor at **115200** — it prints the device IP once
-Wi-Fi connects. Browse to that IP, type text, hit **Update Display**. The current
-IP is also shown in the bottom-left of the panel at all times.
+Wi-Fi connects. Browse to that IP. The current IP is also shown in the bottom-left
+of the panel at all times.
+
+## Display modes
+
+The control page (themed in the **Three Oak Woods** brand — palette, Nunito, and
+the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
+
+- **Text** — type a message (multi-line supported) and hit **Update Display**.
+- **Weather** — enter a US **ZIP code** and hit **Show Weather**. The panel shows
+  ZIP / temperature / conditions and **auto-refreshes every 15 minutes**.
+
+Weather comes from **[wttr.in](https://wttr.in)** — no API key required; it takes a
+ZIP directly and returns a one-line format the firmware parses (no JSON library).
+The fetch uses HTTPS with certificate validation disabled (fine for a home device).
+To swap in another provider (e.g. OpenWeatherMap with a key), edit
+`fetchAndDrawWeather()`.
+
+> **Architecture note:** web handlers don't draw or fetch directly — they queue a
+> `Pending` action that `loop()` executes. This keeps blocking SPI/TLS work off the
+> AsyncTCP task and prevents two tasks touching the display at once.
 
 ## Panel / constructor notes
 
