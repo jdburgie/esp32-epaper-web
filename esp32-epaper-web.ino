@@ -128,9 +128,12 @@ const unsigned long TEXT_DWELL_MS = 30UL * 1000UL;   // longer dwell when text h
 int btnReading = HIGH, btnStable = HIGH; unsigned long btnTime = 0;
 
 // Text paging — scroll a 4-line window when the message is taller than the panel.
+// Scroll steps use a PARTIAL refresh (no de-ghost flash) and stop at the bottom.
 #define TEXT_VISIBLE_LINES 4
 int textScroll = 0; unsigned long lastScroll = 0;
-const unsigned long SCROLL_MS = 4UL * 1000UL;
+unsigned long scrollDoneAt = 0;                      // millis when scroll reached the last line
+const unsigned long SCROLL_MS      = 3UL * 1000UL;   // per-line scroll cadence
+const unsigned long SCROLL_HOLD_MS = 5UL * 1000UL;   // wait after the last line before auto-cycle
 
 unsigned long lastWxFetch = 0;
 const unsigned long WX_REFRESH_MS = 5UL * 60UL * 1000UL;  // refresh weather every 5 min
@@ -145,8 +148,8 @@ unsigned long lastWaitDraw     = 0;
 const unsigned long STATION_WAIT_MS = 90UL * 1000UL;   // give up waiting after 90 s
 const unsigned long WAIT_REDRAW_MS  = 20UL * 1000UL;   // refresh the waiting screen every 20 s
 
-// Line spacing for FreeSansBold12pt7b (~17px glyphs + breathing room).
-#define LINE_HEIGHT 22
+// Line spacing for the message font FreeSansBold9pt7b (~12px glyphs + spacing).
+#define LINE_HEIGHT 18
 
 // Keep only printable ASCII (0x20-0x7E). The 12pt font has no glyphs for the
 // degree sign / wind arrows wttr.in returns, so strip them before drawing.
@@ -251,27 +254,31 @@ void clearDisplay() {
   display.hibernate();  // panel sleeps between updates -> no burn-in
 }
 
-// ---- Draw msg with '\n' line breaks. Centers if <=4 lines; otherwise scrolls
-//      a 4-line window (start line = textScroll) with a page indicator. ----
-void drawText(const String& msg) {
+// ---- Draw msg with '\n' line breaks. Centers if <=4 lines; otherwise shows a
+//      4-line window from textScroll (clamped, non-wrapping) with a position
+//      indicator. `partial=true` uses a partial refresh (no de-ghost flash) —
+//      used for scroll steps so they just clear+redraw without the black flash.
+void drawText(const String& msg, bool partial = false) {
   display.setRotation(1);
   display.setTextColor(GxEPD_BLACK);
-  display.setFullWindow();
+  if (partial) display.setPartialWindow(0, 0, display.width(), display.height());
+  else         display.setFullWindow();
 
   uint8_t total     = lineCount(msg);
   bool    scroll    = total > TEXT_VISIBLE_LINES;
+  uint8_t maxScroll = scroll ? (uint8_t)(total - TEXT_VISIBLE_LINES) : 0;
   uint8_t shown     = scroll ? TEXT_VISIBLE_LINES : total;
-  uint8_t startLine = scroll ? (uint8_t)(textScroll % total) : 0;
+  uint8_t startLine = scroll ? (uint8_t)min((int)textScroll, (int)maxScroll) : 0;
 
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-    display.setFont(&FreeSansBold12pt7b);   // re-select each page; overlays use the small font
+    display.setFont(&FreeSansBold9pt7b);    // re-select each page; overlays use the built-in font
 
-    int16_t yTop = scroll ? 4 : (display.height() - shown * LINE_HEIGHT) / 2;
+    int16_t yTop = scroll ? 6 : (display.height() - shown * LINE_HEIGHT) / 2;
 
     for (uint8_t k = 0; k < shown; k++) {
-      String line = nthLine(msg, scroll ? (uint8_t)((startLine + k) % total) : k);
+      String line = nthLine(msg, startLine + k);
       int16_t tbx, tby; uint16_t tbw, tbh;
       display.getTextBounds(line, 0, 0, &tbx, &tby, &tbw, &tbh);
       int16_t x = (display.width() - tbw) / 2 - tbx;
@@ -280,7 +287,7 @@ void drawText(const String& msg) {
       display.print(line);
     }
 
-    if (scroll) {   // "start/total" page indicator, bottom-left
+    if (scroll) {   // "topLine/total" position indicator, bottom-left
       display.setFont(NULL); display.setTextSize(1);
       display.setCursor(2, display.height() - 8);
       display.print(String(startLine + 1) + "/" + String(total));
@@ -288,7 +295,7 @@ void drawText(const String& msg) {
 
     drawOverlays();
   } while (display.nextPage());
-  display.hibernate();
+  if (!partial) display.hibernate();   // stay powered between partial scroll steps
 }
 
 // ===== Weather icons: 1-bit glyphs drawn with GFX primitives, centered (cx,cy) =====
@@ -580,7 +587,7 @@ void redrawCurrent() {
 void enterMode(DisplayMode m) {
   mode = m;
   if (m == MODE_STATION) { stationModeSince = millis(); lastWaitDraw = 0; }
-  if (m == MODE_TEXT)    { textScroll = 0; lastScroll = millis(); }
+  if (m == MODE_TEXT)    { textScroll = 0; lastScroll = millis(); scrollDoneAt = 0; }
   saveState();
   redrawCurrent();
   lastCycle = millis();
@@ -765,7 +772,7 @@ void setup() {
       if (currentText.length() == 0) currentText = " ";
     }
     mode = MODE_TEXT;
-    textScroll = 0; lastScroll = millis();
+    textScroll = 0; lastScroll = millis(); scrollDoneAt = 0;
     saveState();
     pending = P_TEXT;
     req->redirect("/");
@@ -946,18 +953,32 @@ void loop() {
     if (btnStable == LOW) cycleScreen();
   }
 
-  // Auto-cycle: advance on a timer; dwell longer on the text screen when it has notes.
-  if (autoCycle) {
-    unsigned long dwell = (mode == MODE_TEXT && hasNotes()) ? TEXT_DWELL_MS : CYCLE_MS;
-    if (millis() - lastCycle > dwell) cycleScreen();
+  // Scroll the text screen one line at a time (PARTIAL refresh = no de-ghost
+  // flash) until the last line is on screen, then hold.
+  if (mode == MODE_TEXT) {
+    uint8_t total = lineCount(currentText);
+    if (total > TEXT_VISIBLE_LINES) {
+      uint8_t maxScroll = total - TEXT_VISIBLE_LINES;
+      if (textScroll < maxScroll && millis() - lastScroll > SCROLL_MS) {
+        textScroll++;
+        lastScroll = millis();
+        drawText(currentText, true);                 // partial: clear + draw scrolled lines
+        if (textScroll >= maxScroll) scrollDoneAt = millis();
+      }
+    }
   }
 
-  // Scroll the text screen when the message is taller than the panel.
-  if (mode == MODE_TEXT && lineCount(currentText) > TEXT_VISIBLE_LINES &&
-      millis() - lastScroll > SCROLL_MS) {
-    textScroll++;
-    lastScroll = millis();
-    drawText(currentText);
+  // Auto-cycle: advance on a timer. On a scrolling text screen, don't move on
+  // until SCROLL_HOLD_MS (5 s) after the last line has scrolled into view.
+  if (autoCycle) {
+    bool ready;
+    if (mode == MODE_TEXT && lineCount(currentText) > TEXT_VISIBLE_LINES)
+      ready = (scrollDoneAt != 0) && (millis() - scrollDoneAt > SCROLL_HOLD_MS);
+    else if (mode == MODE_TEXT)
+      ready = (millis() - lastCycle > TEXT_DWELL_MS);     // short note: fixed dwell
+    else
+      ready = (millis() - lastCycle > CYCLE_MS);
+    if (ready) cycleScreen();
   }
 
   // Keep weather fresh while it's the active mode.
