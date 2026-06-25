@@ -45,6 +45,16 @@ so it never gets committed and won't be in a fresh clone):
 #define SECRET_SSID "your-wifi-name"
 #define SECRET_PASS "your-wifi-password"
 #define OWM_API_KEY "your-openweathermap-key"   // for weather mode (openweathermap.org/api)
+
+// Optional static IP (comment out USE_STATIC_IP for DHCP). Useful when the
+// router has no DHCP reservation option and the station push needs a fixed
+// target. Pick an address BELOW the router's DHCP pool to avoid collisions.
+#define USE_STATIC_IP
+#define STATIC_IP      192,168,12,50
+#define STATIC_GATEWAY 192,168,12,1
+#define STATIC_SUBNET  255,255,255,0
+#define STATIC_DNS1    192,168,12,1
+#define STATIC_DNS2    8,8,8,8
 ```
 
 The sketch `#include`s this file and reads `SECRET_SSID` / `SECRET_PASS` /

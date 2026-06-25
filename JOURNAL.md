@@ -60,6 +60,19 @@ history**.
 
 ## Log
 
+### 2026-06-24 — Static IP (T-Mobile gateway has no DHCP reservation)
+- **Root issue all along:** the console's "Customized" Server field was **blank**,
+  so it never pushed. `/debug` proved it — only this PC's IP (.112) ever hit
+  `/data/report`, never the console (.190). The station never sent anything.
+- T-Mobile 5G Gateway has **no DHCP reservation** option, so pinned the ESP with a
+  **firmware static IP** instead. `WiFi.config()` guarded by `USE_STATIC_IP` in
+  `secrets.h`. Chose **192.168.12.50** — ARP showed ~70 devices all in .107–.246
+  (pool starts ~.107), so .2–.99 is below the pool and safe; pinged .50/.40/.30/.60
+  all free. ESP now at **192.168.12.50**; DNS/NTP/weather verified working there.
+- ESP MAC = `08:B6:1F:F0:01:64`. Console = `192.168.12.190` (MAC 40:91:51:59:9E:A3).
+- **User action still needed:** set the console's Customized Server to
+  **192.168.12.50**, Path `/data/report/`, Port 80, AmbientWeather, and Save.
+
 ### 2026-06-24 — NTP clock (default view) + NVS persistence
 - **Clock mode (`MODE_CLOCK`, now the default):** NTP via `configTzTime(TZ_INFO,...)`,
   `TZ_INFO="MST7MDT,M3.2.0,M11.1.0"` (Mountain, auto DST). `drawClock()` centers a

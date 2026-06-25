@@ -566,6 +566,12 @@ void setup() {
   display.init(115200);
 
   WiFi.mode(WIFI_STA);
+#ifdef USE_STATIC_IP
+  // Static IP — this gateway (T-Mobile 5G) has no DHCP reservation option.
+  if (!WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
+                   IPAddress(STATIC_DNS1), IPAddress(STATIC_DNS2)))
+    Serial.println("Static IP config failed; falling back to DHCP");
+#endif
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
