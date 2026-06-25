@@ -313,10 +313,8 @@ history**.
 
 ## Open follow-ups (not started)
 
-- **TODO (2026-06-25): add weather views to the web page** — show the actual
-  weather (city / temp / condition / feels / humidity / wind) on the page itself,
-  not just a control to push it to the panel. Candidate: the `web-app` SPA (it
-  already has weather in `/status.json`) and/or the device-served page.
+- ~~TODO (2026-06-25): add weather views to the web page~~ **DONE** — SPA Forecast
+  + Backyard station cards; `/status.json` enriched. Web app now served at `/app`.
 - **TODO (2026-06-25): "remember test"** — read as: test the new button + battery
   on real hardware once wired (GPIO27 button, GPIO34 divider). *Awaiting
   confirmation that this is what was meant.*
@@ -325,3 +323,21 @@ history**.
 - Per-line auto-shrink to a smaller font when a line exceeds the 250px width.
 - Possible later: partial-window refresh for snappier redraws (currently
   full-window, which flashes black/white each update).
+
+---
+
+## Estimated AI footprint
+
+Rough, unverifiable estimate of the data-center water used by the AI assistant
+across this project's build sessions: **on the order of ~1 gallon (~4 L), with at
+least a 10× uncertainty band either way** — plausibly a couple of cups, plausibly
+a few gallons. There is no per-conversation meter; this is extrapolated from
+published per-query ranges, which are themselves contested and vary widely by
+data-center cooling and location.
+
+- **Caveat:** order-of-magnitude only; do not cite as measured. Local work
+  (firmware compiles/flashes, OpenSCAD renders, `curl` tests) ran on the dev PC —
+  ordinary wall power, negligible water.
+- **Source:** P. Li, J. Yang, M. A. Islam, S. Ren, *"Making AI Less 'Thirsty':
+  Uncovering and Addressing the Secret Water Footprint of AI Models,"* 2023
+  (arXiv:2304.03271).
