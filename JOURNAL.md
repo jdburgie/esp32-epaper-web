@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Enclosure: refined exterior + real measured dims
+- Brought in the user's refined `weather-epaper-refined.scad` as
+  `enclosure/epaper-case.scad`: **measured display dims** (module 76.5×34.5×2.4,
+  window 59.2×29.3, win_dx −1.0) and a redesigned exterior — beveled rear edge,
+  wraparound accent band, chamfered faceplate, recessed display surround, beveled
+  window opening, softened countersinks. Internals/cavity/ports unchanged.
+- That refinement came off an older base, so it had dropped the **button hole**,
+  **stand**, and **wall-mount keyholes** — re-added all three on top of the
+  refined exterior (btn_d top hole, `stand` part, `wall_mount` keyholes).
+- Re-rendered shell/front/stand STLs (all manifold-clean) + preview.
+
 ### 2026-06-25 — Persist the message box text
 - `saveState()` now also writes `currentText` to NVS ("text" key); boot restores
   it (`prefs.getString("text", ...)`). Boot mode logic gained a `MODE_TEXT` branch
