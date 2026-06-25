@@ -561,6 +561,11 @@ void setup() {
     req->redirect("/");
   });
 
+  server.on("/clear", HTTP_GET, [](AsyncWebServerRequest* req){
+    pending = P_CLEAR;
+    req->redirect("/");
+  });
+
   // Ingest pushes from the Ambient Weather console's "Customized" upload.
   // The console may send GET (fields in the query string) or POST (fields in the
   // body), so read a field from query -> POST param -> raw body, in that order.
