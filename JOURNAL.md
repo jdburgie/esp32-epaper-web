@@ -60,6 +60,22 @@ history**.
 
 ## Log
 
+### 2026-06-24 — NTP clock (default view) + NVS persistence
+- **Clock mode (`MODE_CLOCK`, now the default):** NTP via `configTzTime(TZ_INFO,...)`,
+  `TZ_INFO="MST7MDT,M3.2.0,M11.1.0"` (Mountain, auto DST). `drawClock()` centers a
+  big time (24pt) + date (12pt); shows "Syncing time..." until NTP locks; ticks
+  once per minute in loop (full refresh each minute — flashes; flagged to user).
+  "Show Clock" button + `/clock` endpoint.
+- **Persistence (NVS via `Preferences`, namespace "epaper"):** `saveState()` writes
+  `mode` + `zip` on every view change. Boot restores: saved `mode==WEATHER` && zip
+  → weather; else clock. Verified across a real reboot — saved ZIP 80631 came back
+  as "Weather — Greeley" after reset.
+- **Station pull vs push reminder:** the console PUSHES to
+  `http://<esp-ip>/data/report/`; the ESP never pulls from the station. (OWM is the
+  only outbound pull: `api.openweathermap.org/data/2.5/weather`.)
+- Note: clock's per-minute full refresh is aggressive on panel life; could switch
+  to partial refresh or coarser interval if wear becomes a concern.
+
 ### 2026-06-24 — Fix station push parsing (POST) + /debug diagnostics
 - **Root cause of "/data/report/ failing":** the console likely POSTs the readings
   in the request body, but the handler only read the **query string** → zero fields

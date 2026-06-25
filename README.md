@@ -70,8 +70,10 @@ of the panel at all times.
 ## Display modes
 
 The control page (themed in the **Three Oak Woods** brand — palette, Nunito, and
-the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
+the acorn badge served from `logo.h` at `/logo.svg`) offers these modes:
 
+- **Clock** *(default view)* — NTP-synced date and time, redrawn every minute.
+  Timezone is set by `TZ_INFO` in the sketch (default Mountain Time, auto DST).
 - **Text** — type a message (multi-line supported) and hit **Update Display**.
 - **Weather** — enter a US **ZIP code** and hit **Show Weather**. The panel shows
   a drawn weather icon, the **city**, a large **temperature**, the **condition**,
@@ -84,6 +86,10 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers two modes:
 
 The page also has a **Clean (de-ghost)** button that flashes the panel black↔white
 to scrub e-paper ghosting; the same scrub runs automatically every 6 hours.
+
+**Persistence:** the last view is saved to NVS (`Preferences`), so after a power
+loss the panel restores itself — a remembered ZIP boots straight back to that
+weather view; otherwise it boots to the clock.
 
 Weather comes from **[OpenWeatherMap](https://openweathermap.org/api)** (current-
 weather endpoint, `units=imperial`). Put a free API key in `secrets.h` as

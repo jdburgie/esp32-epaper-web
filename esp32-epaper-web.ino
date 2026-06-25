@@ -24,12 +24,17 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
+#include <Preferences.h>
+#include <time.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
 #include "secrets.h"   // SECRET_SSID / SECRET_PASS / OWM_API_KEY (gitignored)
 #include "logo.h"      // THREEOAKWOODS_BADGE_SVG, served at /logo.svg
+
+// POSIX timezone for the clock — Mountain Time (Greeley, CO), auto DST.
+#define TZ_INFO "MST7MDT,M3.2.0,M11.1.0"
 
 // ---- Wi-Fi ----
 const char* ssid     = SECRET_SSID;
@@ -52,8 +57,10 @@ String currentText  = "Hello World!";
 String ipText       = "";   // set once Wi-Fi connects; shown bottom-left always
 
 // ---- Display mode + weather state ----
-enum DisplayMode { MODE_TEXT, MODE_WEATHER, MODE_STATION };
-DisplayMode mode    = MODE_TEXT;
+enum DisplayMode { MODE_TEXT, MODE_WEATHER, MODE_STATION, MODE_CLOCK };
+DisplayMode mode    = MODE_CLOCK;   // clock is the default view
+Preferences prefs;                  // NVS: remembers last mode + ZIP across power loss
+int lastClockMin = -1;              // last minute drawn, so the clock redraws on change
 String weatherZip   = "";   // last ZIP requested
 String weatherText  = "";   // short summary, shown on the web page
 
@@ -80,7 +87,7 @@ String lastBody;   // raw body of the most recent push, viewable at /debug
 // All panel drawing + the weather fetch run from loop(), never inside an async
 // web handler — that keeps blocking SPI/TLS work off the AsyncTCP task and
 // avoids two tasks touching the display at once. Handlers just queue an action.
-enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP };
+enum Pending { P_NONE, P_TEXT, P_WEATHER, P_CLEAR, P_STATION, P_DEEP, P_CLOCK };
 volatile Pending pending = P_NONE;
 
 unsigned long lastWxFetch = 0;
@@ -430,10 +437,58 @@ void deepRefresh() {
   display.hibernate();
 }
 
+// ---- Clock: big time + date, centered (default view) ----
+void drawClock() {
+  struct tm ti;
+  bool haveTime = getLocalTime(&ti, 200);
+
+  display.setRotation(1);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    if (!haveTime) {
+      display.setFont(&FreeSansBold12pt7b);
+      const char* m = "Syncing time...";
+      int16_t bx, by; uint16_t bw, bh;
+      display.getTextBounds(m, 0, 0, &bx, &by, &bw, &bh);
+      display.setCursor((display.width() - bw) / 2 - bx, 70);
+      display.print(m);
+    } else {
+      char tb[16], db[28];
+      strftime(tb, sizeof tb, "%I:%M %p", &ti);     // 10:42 AM
+      strftime(db, sizeof db, "%a, %b %d %Y", &ti);  // Wed, Jun 24 2026
+      String tStr = tb; if (tStr.startsWith("0")) tStr.remove(0, 1);  // drop leading zero hour
+
+      int16_t bx, by; uint16_t bw, bh;
+      display.setFont(&FreeSansBold24pt7b);
+      display.getTextBounds(tStr, 0, 0, &bx, &by, &bw, &bh);
+      display.setCursor((display.width() - bw) / 2 - bx, 60);
+      display.print(tStr);
+
+      display.setFont(&FreeSansBold12pt7b);
+      display.getTextBounds(db, 0, 0, &bx, &by, &bw, &bh);
+      display.setCursor((display.width() - bw) / 2 - bx, 95);
+      display.print(db);
+    }
+    drawIpLabel();
+  } while (display.nextPage());
+  display.hibernate();
+  if (haveTime) lastClockMin = ti.tm_min;
+}
+
+// ---- Persist the view (mode + ZIP) to NVS so it survives power loss ----
+void saveState() {
+  prefs.putInt("mode", (int)mode);
+  prefs.putString("zip", weatherZip);
+}
+
 // ---- Redraw whatever the current mode should show ----
 void redrawCurrent() {
   if      (mode == MODE_WEATHER) { if (wx.valid) drawWeather(); else fetchAndDrawWeather(); }
   else if (mode == MODE_STATION) drawStation();
+  else if (mode == MODE_CLOCK)   drawClock();
   else                           drawText(currentText);
 }
 
@@ -444,6 +499,8 @@ String page() {
     status = "Weather \xE2\x80\x94 " + (weatherText.length() ? weatherText : ("ZIP " + weatherZip));
   else if (mode == MODE_STATION)
     status = "Station \xE2\x80\x94 " + stationSummary();
+  else if (mode == MODE_CLOCK)
+    status = "Clock (date & time)";
   else
     status = currentText;
 
@@ -482,7 +539,8 @@ String page() {
     "<form action='/set' method='get'>"
     "<label>Message</label>"
     "<textarea name='msg' rows='4' maxlength='120' placeholder='Type text... (Enter for a new line)'>" + currentText + "</textarea>"
-    "<button type='submit'>Update Display</button></form></div>"
+    "<button type='submit'>Update Display</button></form>"
+    "<form action='/clock' method='get'><button type='submit' class='clear'>Show Clock (default)</button></form></div>"
     "<div class='card'><h2>Weather</h2>"
     "<form action='/weather' method='get'>"
     "<label>ZIP code</label>"
@@ -516,7 +574,21 @@ void setup() {
   Serial.print("Ready. Browse to: http://");
   Serial.println(ipText);
 
-  drawText(currentText);   // first draw now includes the IP label
+  configTzTime(TZ_INFO, "pool.ntp.org", "time.nist.gov");  // start NTP for the clock
+
+  // Restore last view from NVS: a saved ZIP defaults back to weather,
+  // otherwise fall to the default clock view.
+  prefs.begin("epaper", false);
+  weatherZip = prefs.getString("zip", "");
+  int savedMode = prefs.getInt("mode", MODE_CLOCK);
+  if (savedMode == MODE_WEATHER && weatherZip.length()) {
+    mode = MODE_WEATHER;
+    fetchAndDrawWeather();
+    lastWxFetch = millis();
+  } else {
+    mode = MODE_CLOCK;
+    drawClock();
+  }
   lastDeep = millis();     // start the deep-refresh timer from boot
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req){
@@ -537,19 +609,29 @@ void setup() {
       if (currentText.length() == 0) currentText = " ";
     }
     mode = MODE_TEXT;
+    saveState();
     pending = P_TEXT;
+    req->redirect("/");
+  });
+
+  server.on("/clock", HTTP_GET, [](AsyncWebServerRequest* req){
+    mode = MODE_CLOCK;
+    saveState();
+    pending = P_CLOCK;
     req->redirect("/");
   });
 
   server.on("/weather", HTTP_GET, [](AsyncWebServerRequest* req){
     if (req->hasParam("zip")) weatherZip = req->getParam("zip")->value();
     mode = MODE_WEATHER;
+    saveState();              // remember the ZIP + weather view across power loss
     pending = P_WEATHER;
     req->redirect("/");
   });
 
   server.on("/station", HTTP_GET, [](AsyncWebServerRequest* req){
     mode = MODE_STATION;
+    saveState();
     stationModeSince = millis();   // start the "waiting" timeout/counter
     lastWaitDraw = 0;
     pending = P_STATION;
@@ -631,6 +713,7 @@ void loop() {
     if      (job == P_TEXT)    drawText(currentText);
     else if (job == P_WEATHER) { fetchAndDrawWeather(); lastWxFetch = millis(); }
     else if (job == P_STATION) drawStation();
+    else if (job == P_CLOCK)   drawClock();
     else if (job == P_CLEAR)   clearDisplay();
     else if (job == P_DEEP)    { deepRefresh(); redrawCurrent(); lastDeep = millis(); }
   }
@@ -639,6 +722,12 @@ void loop() {
   if (mode == MODE_WEATHER && millis() - lastWxFetch > WX_REFRESH_MS) {
     fetchAndDrawWeather();
     lastWxFetch = millis();
+  }
+
+  // Tick the clock once per minute while it's showing.
+  if (mode == MODE_CLOCK) {
+    struct tm ti;
+    if (getLocalTime(&ti, 0) && ti.tm_min != lastClockMin) drawClock();
   }
 
   // Station mode with no data yet: keep the "waiting" screen visibly counting,
