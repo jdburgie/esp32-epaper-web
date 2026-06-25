@@ -148,8 +148,8 @@ unsigned long lastWaitDraw     = 0;
 const unsigned long STATION_WAIT_MS = 90UL * 1000UL;   // give up waiting after 90 s
 const unsigned long WAIT_REDRAW_MS  = 20UL * 1000UL;   // refresh the waiting screen every 20 s
 
-// Line spacing for the message font FreeSansBold9pt7b (~12px glyphs + spacing).
-#define LINE_HEIGHT 18
+// Line spacing for the message font FreeSansBold12pt7b (~17px glyphs + spacing).
+#define LINE_HEIGHT 22
 
 // Keep only printable ASCII (0x20-0x7E). The 12pt font has no glyphs for the
 // degree sign / wind arrows wttr.in returns, so strip them before drawing.
@@ -273,7 +273,7 @@ void drawText(const String& msg, bool partial = false) {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-    display.setFont(&FreeSansBold9pt7b);    // re-select each page; overlays use the built-in font
+    display.setFont(&FreeSansBold12pt7b);   // re-select each page; overlays use the built-in font
 
     int16_t yTop = scroll ? 6 : (display.height() - shown * LINE_HEIGHT) / 2;
 
@@ -295,7 +295,11 @@ void drawText(const String& msg, bool partial = false) {
 
     drawOverlays();
   } while (display.nextPage());
-  if (!partial) display.hibernate();   // stay powered between partial scroll steps
+  // Don't hibernate during a scrolling sequence: hibernate wipes the controller's
+  // previous-frame RAM, so the next partial update can't erase the old lines and
+  // they overlay. Stay powered (initial full draw + all partial steps) so each
+  // partial cleanly clears the prior screen. Non-scrolling text hibernates.
+  if (!scroll) display.hibernate();
 }
 
 // ===== Weather icons: 1-bit glyphs drawn with GFX primitives, centered (cx,cy) =====

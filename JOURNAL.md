@@ -60,20 +60,21 @@ history**.
 
 ## Log
 
-### 2026-06-25 — Text scroll: partial refresh, smaller font, scroll-then-hold
+### 2026-06-25 — Text scroll: flash-free partial refresh, scroll-then-hold
 - **No de-ghost on scroll:** `drawText(msg, partial)` — scroll steps call it with
-  `partial=true` → `setPartialWindow(full)` (flash-free), and skip `hibernate()`
-  so the controller stays warm between steps. Initial/mode-entry draw stays full.
-- **Smaller font:** message text 12pt → **FreeSansBold9pt7b** (next bundled size;
-  no 10/11pt stock). `LINE_HEIGHT` 22 → 18.
-- **Scroll-then-hold:** scroll is now **non-wrapping** — advances `textScroll` 0→
-  `total-4` one line per `SCROLL_MS` (3s), then stops at the bottom and records
-  `scrollDoneAt`. Auto-cycle on a scrolling text screen waits `SCROLL_HOLD_MS`
-  (5s) after `scrollDoneAt` before advancing (short notes still use TEXT_DWELL).
-- "Smooth" caveat: e-paper can't pixel-scroll (refresh latency); this is
-  line-by-line but flash-free, which is the smoothest practical result.
-- Verified: compiles + flashes; 7-line message loads in text mode. Visual
-  (font size / no-flash / hold timing) is for the user's eyes.
+  `partial=true` → `setPartialWindow(full)` (flash-free).
+- **Overlay bug + fix:** first attempt hibernated after the initial full draw,
+  which wipes the controller's previous-frame RAM → each partial step stacked new
+  text over old. Fix: **don't hibernate during a scrolling sequence** (`if(!scroll)
+  hibernate`), so the panel keeps a valid prior frame to erase against.
+- **Font:** tried 9pt to fit more, but **too small — reverted to 12pt**
+  (`FreeSansBold12pt7b`, `LINE_HEIGHT 22`). User passed on a custom 10/11pt font.
+- **Scroll-then-hold:** non-wrapping — advances `textScroll` 0→`total-4` one line
+  per `SCROLL_MS` (3s), stops at the bottom, records `scrollDoneAt`. Auto-cycle on
+  a scrolling text screen waits `SCROLL_HOLD_MS` (5s) after that before advancing
+  (short notes still use TEXT_DWELL).
+- "Smooth" caveat: e-paper can't pixel-scroll (refresh latency); line-by-line but
+  flash-free is the smoothest practical result.
 
 ### 2026-06-25 — Enclosure: refined exterior + real measured dims
 - Brought in the user's refined `weather-epaper-refined.scad` as
