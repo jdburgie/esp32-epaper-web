@@ -197,6 +197,8 @@ async function poll(){
     renderWeather(d.weather);
     renderStation(d.station);
     if(d.weather?.zip && !$('#zip').value) $('#zip').value = d.weather.zip;
+    // Show the device's current message — but don't clobber what the user is typing.
+    if(document.activeElement !== $('#msg') && d.text != null) $('#msg').value = d.text;
   } catch(e){
     $('#dot').classList.remove('on'); $('#conn').textContent = 'not connected — check the address';
   }
