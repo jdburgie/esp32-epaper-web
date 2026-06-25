@@ -277,6 +277,13 @@ history**.
 
 ## Open follow-ups (not started)
 
+- **TODO (2026-06-25): add weather views to the web page** — show the actual
+  weather (city / temp / condition / feels / humidity / wind) on the page itself,
+  not just a control to push it to the panel. Candidate: the `web-app` SPA (it
+  already has weather in `/status.json`) and/or the device-served page.
+- **TODO (2026-06-25): "remember test"** — read as: test the new button + battery
+  on real hardware once wired (GPIO27 button, GPIO34 divider). *Awaiting
+  confirmation that this is what was meant.*
 - Cap rendered lines at 4 (the textarea allows more than fit the 122px panel);
   truncate or warn on overflow.
 - Per-line auto-shrink to a smaller font when a line exceeds the 250px width.
