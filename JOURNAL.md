@@ -60,6 +60,20 @@ history**.
 
 ## Log
 
+### 2026-06-25 — `web-app` branch: standalone browser SPA
+*(this entry exists on the `web-app` branch)*
+- Firmware (branch only): added **`/status.json`** (mode, ip, autoCycle, text,
+  battery, weather, station via ArduinoJson) and a global
+  **`Access-Control-Allow-Origin: *`** header (DefaultHeaders) so an off-device
+  app can read it. `modeName()` helper added.
+- **`webapp/index.html`** — single-file Three Oak Woods themed SPA: enter the
+  device address (saved in localStorage), polls `/status.json` every 5 s, shows
+  live status (battery, weather, station, auto-cycle), and drives all the
+  existing GET endpoints (clock/weather/station/next/cycle/set/clear/refresh).
+  Fires actions with `redirect:'manual'`. No build step / no deps.
+- Verified `/status.json` + CORS header on device. To use: flash this branch,
+  open `webapp/index.html`, connect to `http://192.168.12.50`.
+
 ### 2026-06-25 — Battery %, button cycling, auto-cycle, text scroll; case v2
 - **Battery indicator:** GPIO34 via 2:1 divider, `analogReadMilliVolts`, mapped
   3.30–4.20 V → 0–100%. `readBattery()` auto-detects (shows only when plausible),

@@ -572,6 +572,15 @@ void cycleScreen() {
   enterMode(order[(idx + 1) % 4]);
 }
 
+const char* modeName() {
+  switch (mode) {
+    case MODE_WEATHER: return "weather";
+    case MODE_STATION: return "station";
+    case MODE_TEXT:    return "text";
+    default:           return "clock";
+  }
+}
+
 // ---- Three Oak Woods themed control page ----
 String page() {
   String status;
@@ -684,6 +693,9 @@ void setup() {
     drawClock();
   }
   lastDeep = millis();     // start the deep-refresh timer from boot
+
+  // Allow the standalone web app (different origin) to read the API.
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req){
     req->send(200, "text/html", page());
@@ -814,6 +826,29 @@ void setup() {
   };
   server.on("/data/report/", HTTP_ANY, onReport, NULL, onBody);
   server.on("/data/report",  HTTP_ANY, onReport, NULL, onBody);   // tolerate missing trailing slash
+
+  // Machine-readable status for the web app (CORS-enabled below).
+  server.on("/status.json", HTTP_GET, [](AsyncWebServerRequest* req){
+    JsonDocument d;
+    d["mode"]      = modeName();
+    d["ip"]        = ipText;
+    d["autoCycle"] = autoCycle;
+    d["text"]      = currentText;
+    d["battValid"] = battValid;
+    d["battPct"]   = battPct;
+    d["battVolts"] = battVolts;
+    JsonObject w = d["weather"].to<JsonObject>();
+    w["zip"] = weatherZip; w["valid"] = wx.valid; w["city"] = wx.city;
+    w["temp"] = wx.temp; w["cond"] = wx.cond; w["summary"] = weatherText;
+    JsonObject s = d["station"].to<JsonObject>();
+    s["received"] = st.received;
+    if (!isnan(st.tempf))    s["tempf"]    = st.tempf;
+    if (!isnan(st.humidity)) s["humidity"] = st.humidity;
+    if (!isnan(st.windmph))  s["windmph"]  = st.windmph;
+    s["summary"] = stationSummary();
+    String out; serializeJson(d, out);
+    req->send(200, "application/json", out);
+  });
 
   // Diagnostics: who's hitting us and with what.
   server.on("/debug", HTTP_GET, [](AsyncWebServerRequest* req){

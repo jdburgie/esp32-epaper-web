@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three Oak Woods — E-Paper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--green:#2C654B;--cream:#F9E7DF;--amber:#C8852A;--bark:#2B3A33;--parchment:#F5F1E6}
+  *{box-sizing:border-box}
+  body{font-family:'Nunito',system-ui,sans-serif;color:var(--bark);background:var(--parchment);margin:0;padding:0 16px 48px}
+  .wrap{max-width:520px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;padding:22px 0 6px}
+  header img{width:52px;height:52px}
+  header .sub{color:var(--green);font-weight:700;font-size:.78em;letter-spacing:.05em;text-transform:uppercase}
+  header h1{font-size:1.25em;font-weight:800;margin:0}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>*{flex:1}
+  .card{background:#fff;border:1px solid #e6ddca;border-radius:12px;padding:14px 16px;margin:0 0 14px}
+  .card h2{margin:0 0 10px;font-size:1.02em;color:var(--green)}
+  label{font-weight:700;font-size:.85em;display:block;margin:0 0 4px}
+  input,textarea,button{font-family:inherit;font-size:1.02em;padding:10px;width:100%;border-radius:8px;border:1px solid #cfc6b3;margin:4px 0}
+  textarea{resize:vertical}
+  button{border:0;background:var(--green);color:var(--cream);font-weight:800;cursor:pointer}
+  button:hover{filter:brightness(1.08)}
+  button.amber{background:var(--amber)}
+  button.ghost{background:#fff;color:var(--bark);border:1px solid #cfc6b3;font-weight:700}
+  .pill{display:inline-block;background:var(--cream);border-left:4px solid var(--amber);border-radius:8px;padding:8px 12px;font-weight:700}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{background:var(--parchment);border-radius:8px;padding:10px}
+  .stat .k{font-size:.72em;text-transform:uppercase;letter-spacing:.04em;color:var(--green);font-weight:700}
+  .stat .v{font-size:1.15em;font-weight:800;margin-top:2px}
+  .muted{color:#7a786e;font-size:.85em}
+  footer{text-align:center;color:var(--green);font-size:.8em;margin-top:6px;opacity:.85}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:6px;vertical-align:1px}
+  .dot.on{background:var(--green)}
+</style>
+</head>
+<body><div class="wrap">
+
+  <header>
+    <img id="logo" alt="" hidden>
+    <div><div class="sub">Three Oak Woods</div><h1>E-Paper Control</h1></div>
+  </header>
+
+  <div class="card">
+    <label>Device address</label>
+    <div class="row" style="align-items:center">
+      <input id="host" placeholder="http://192.168.12.50" style="flex:3">
+      <button id="save" class="ghost" style="flex:1">Connect</button>
+    </div>
+    <div class="muted"><span id="dot" class="dot"></span><span id="conn">not connected</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Now showing</h2>
+    <div class="pill" id="status">…</div>
+    <div class="grid" style="margin-top:12px">
+      <div class="stat"><div class="k">Battery</div><div class="v" id="batt">—</div></div>
+      <div class="stat"><div class="k">Auto-cycle</div><div class="v" id="cyc">—</div></div>
+      <div class="stat"><div class="k">Weather</div><div class="v" id="wx">—</div></div>
+      <div class="stat"><div class="k">Station</div><div class="v" id="stn">—</div></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" data-act="/next">Next screen →</button>
+      <button id="cycbtn" data-act="/cycle">Auto-cycle</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Screens</h2>
+    <div class="row">
+      <button data-act="/clock">Clock</button>
+      <button data-act="/station">Station</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="zip" inputmode="numeric" maxlength="5" placeholder="ZIP" style="flex:1">
+      <button class="amber" id="wxbtn" style="flex:2">Show weather</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Text</h2>
+    <textarea id="msg" rows="6" maxlength="400" placeholder="Type a note… (scrolls if over 4 lines)"></textarea>
+    <button id="setbtn">Update display</button>
+  </div>
+
+  <div class="row">
+    <button class="ghost" data-act="/clear">Clear</button>
+    <button class="ghost" data-act="/refresh">Clean (de-ghost)</button>
+  </div>
+
+  <footer>Three Oak Woods · e-paper web app</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let host = localStorage.getItem('epaperHost') || 'http://192.168.12.50';
+$('#host').value = host;
+
+function setHost(){
+  host = $('#host').value.trim().replace(/\/$/,'');
+  if(host && !/^https?:\/\//.test(host)) host = 'http://'+host;
+  localStorage.setItem('epaperHost', host);
+  $('#host').value = host;
+  $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false;
+  poll();
+}
+$('#save').onclick = setHost;
+
+async function act(path){
+  try { await fetch(host+path, {redirect:'manual', mode:'cors'}); } catch(e){}
+  setTimeout(poll, 600);     // give the device a moment to redraw
+}
+document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => act(b.dataset.act));
+$('#wxbtn').onclick = () => { const z=$('#zip').value.trim(); if(z) act('/weather?zip='+encodeURIComponent(z)); };
+$('#setbtn').onclick = () => act('/set?msg='+encodeURIComponent($('#msg').value));
+
+async function poll(){
+  try {
+    const r = await fetch(host+'/status.json', {mode:'cors'});
+    const d = await r.json();
+    $('#dot').classList.add('on'); $('#conn').textContent = 'connected · '+(d.ip||host);
+    $('#status').textContent = ({clock:'Clock (date & time)',text:d.text||'Text',
+      weather:'Weather — '+(d.weather?.summary||d.weather?.zip||''),
+      station:'Station — '+(d.station?.summary||'')})[d.mode] || d.mode;
+    $('#batt').textContent = d.battValid ? (d.battPct+'%  ·  '+(+d.battVolts).toFixed(2)+' V') : '— (no cell)';
+    $('#cyc').innerHTML = '<span class="dot '+(d.autoCycle?'on':'')+'"></span>'+(d.autoCycle?'On':'Off');
+    $('#cycbtn').textContent = d.autoCycle ? 'Stop cycling' : 'Auto-cycle';
+    $('#wx').textContent = d.weather?.valid ? (d.weather.city+' '+d.weather.temp+'°') : (d.weather?.zip ? 'ZIP '+d.weather.zip : '—');
+    $('#stn').textContent = d.station?.received ? (Math.round(d.station.tempf)+'°F') : 'no data';
+    if(!$('#msg').matches(':focus') && d.text!==undefined) { /* keep field if user typing */ }
+    if(d.weather?.zip && !$('#zip').value) $('#zip').value = d.weather.zip;
+  } catch(e){
+    $('#dot').classList.remove('on'); $('#conn').textContent = 'not connected — check the address';
+  }
+}
+
+if(host){ $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false; }
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>
