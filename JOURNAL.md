@@ -60,6 +60,21 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Made the web app a PWA (installable, home-screen)
+- Added `webapp/manifest.webmanifest`, `webapp/sw.js`, and icons (192/512/apple-
+  touch, from Three Oak Woods branding). index.html: manifest link, theme-color,
+  apple-web-app meta, SW registration (guarded by `isSecureContext`), and an
+  **Install app** button (`beforeinstallprompt`).
+- Device serves the PWA assets: `/manifest.webmanifest` (absolute-path variant in
+  `DEVICE_MANIFEST`), `/sw.js` (`DEVICE_SW`), `/icon-192.png` + `/apple-touch-icon.png`
+  (from `icon.h`, a byte array via `xxd -i`). Verified all 200 w/ right MIME.
+- **Key constraint documented:** service workers need a secure context; the device
+  is HTTP, so no offline/auto-install-prompt there, BUT add-to-home-screen still
+  gives a standalone app over HTTP (same-origin live data). HTTPS hosting would
+  enable offline but mixed-content-block the HTTP device — so device-served HTTP
+  is the right tradeoff. SW self-activates only if served from a secure origin.
+- Note: `pio upload` hit a stale COM3 handle once (Error 2); a retry fixed it.
+
 ### 2026-06-25 — Merged web-app → main; device serves the SPA at /app
 - **Merged `web-app` into `main`** (fast-forward) — `/status.json`, CORS, the SPA,
   weather views, and the "Message" label are now on main.

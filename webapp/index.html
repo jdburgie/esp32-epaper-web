@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Three Oak Woods — E-Paper</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2C654B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="E-Paper">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
@@ -99,6 +107,8 @@
     <button class="ghost" data-act="/refresh">Clean (de-ghost)</button>
   </div>
 
+  <button id="install" hidden style="margin-top:10px">Install app</button>
+
   <footer>Three Oak Woods · e-paper web app</footer>
 </div>
 
@@ -191,6 +201,21 @@ async function poll(){
 if(host){ $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false; }
 poll();
 setInterval(poll, 5000);
+
+// ---- PWA: service worker (secure contexts only) + install button ----
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredPrompt = e; $('#install').hidden = false;
+});
+$('#install').onclick = async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt(); await deferredPrompt.userChoice;
+  deferredPrompt = null; $('#install').hidden = true;
+};
+window.addEventListener('appinstalled', () => { $('#install').hidden = true; });
 </script>
 </body>
 </html>

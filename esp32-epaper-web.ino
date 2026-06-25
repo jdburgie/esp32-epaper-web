@@ -32,7 +32,27 @@
 #include <Fonts/FreeSansBold24pt7b.h>
 #include "secrets.h"   // SECRET_SSID / SECRET_PASS / OWM_API_KEY (gitignored)
 #include "logo.h"      // THREEOAKWOODS_BADGE_SVG, served at /logo.svg
-#include "webapp.h"    // WEBAPP_HTML (SPA), served at /app
+#include "webapp.h"    // WEBAPP_HTML (SPA / PWA), served at /app
+#include "icon.h"      // webapp_icon_192_png[], served as the PWA icon
+
+// PWA manifest the DEVICE serves (absolute paths for the /app origin). The copy
+// in webapp/ uses relative paths for standalone/hosted use.
+const char DEVICE_MANIFEST[] = R"MANIFEST({
+  "name":"Three Oak Woods E-Paper","short_name":"E-Paper","start_url":"/app","scope":"/",
+  "display":"standalone","background_color":"#F5F1E6","theme_color":"#2C654B",
+  "icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+           {"src":"/logo.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+})MANIFEST";
+
+// Service worker the device serves (only runs if the origin is secure; harmless on HTTP).
+const char DEVICE_SW[] = R"SWJS(const CACHE='epaper-dev-v1';
+const SHELL=['/app','/manifest.webmanifest','/icon-192.png','/logo.svg'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});
+self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});
+self.addEventListener('fetch',e=>{const p=new URL(e.request.url).pathname;
+if(/(\/status\.json|\/(set|weather|station|clock|next|cycle|clear|refresh))/.test(p))return;
+e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});
+)SWJS";
 
 // POSIX timezone for the clock — Mountain Time (Greeley, CO), auto DST.
 #define TZ_INFO "MST7MDT,M3.2.0,M11.1.0"
@@ -711,8 +731,26 @@ void setup() {
   });
 
   server.on("/app", HTTP_GET, [](AsyncWebServerRequest* req){
-    req->send(200, "text/html", WEBAPP_HTML);   // the bundled web app (SPA)
+    req->send(200, "text/html", WEBAPP_HTML);   // the bundled web app (PWA)
   });
+
+  // ---- PWA assets so the app installs to the home screen ----
+  server.on("/manifest.webmanifest", HTTP_GET, [](AsyncWebServerRequest* req){
+    req->send(200, "application/manifest+json", DEVICE_MANIFEST);
+  });
+  server.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest* req){
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/javascript", DEVICE_SW);
+    r->addHeader("Service-Worker-Allowed", "/");
+    req->send(r);
+  });
+  auto sendIcon = [](AsyncWebServerRequest* req){
+    AsyncWebServerResponse* r = req->beginResponse_P(200, "image/png",
+        webapp_icon_192_png, webapp_icon_192_png_len);
+    r->addHeader("Cache-Control", "max-age=86400");
+    req->send(r);
+  };
+  server.on("/icon-192.png",        HTTP_GET, sendIcon);
+  server.on("/apple-touch-icon.png", HTTP_GET, sendIcon);
 
   // Handlers only queue work; loop() does the drawing/fetching (off the async task).
   server.on("/set", HTTP_GET, [](AsyncWebServerRequest* req){

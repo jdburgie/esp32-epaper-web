@@ -1,9 +1,29 @@
-# Web app (browser SPA)
+# Web app (PWA)
 
-A standalone, single-file web app that controls the e-paper display from any
-phone or laptop — a richer alternative to the minimal page the device serves
-itself. It talks to the device's HTTP API and polls a new `/status.json`
-endpoint for live state (mode, battery, weather, station).
+A web app that controls the e-paper display from any phone or laptop — a richer
+alternative to the minimal page the device serves itself. It talks to the
+device's HTTP API and polls `/status.json` for live state (mode, battery,
+weather, station). It's a **PWA**: add it to your home screen and it runs
+full-screen/standalone with the Three Oak Woods icon.
+
+## Install (add to home screen)
+Open the app on the device (`http://192.168.12.50/app`), then:
+- **Android (Chrome):** ⋮ menu → **Add to Home screen** (or the **Install app**
+  button if it appears).
+- **iOS (Safari):** Share → **Add to Home Screen**.
+
+It installs with the badge icon and opens chrome-less, talking to the device
+over your LAN.
+
+> **Why no offline / no auto-install prompt:** service workers (offline caching
+> and the one-tap install prompt) require a **secure context** — HTTPS or
+> localhost. The device serves plain **HTTP**, so the service worker doesn't
+> register there (the app still installs to the home screen and works; it just
+> isn't cached offline). Hosting the app on HTTPS *would* enable offline, but
+> then the browser blocks it from reading the HTTP device (mixed content). Since
+> live device data is the whole point, **HTTP-from-the-device is the right call**
+> here. The service worker is included and self-activates **if** you ever serve
+> the app from a secure origin.
 
 ## Run it
 **Easiest — the device serves it.** The firmware bundles this app and serves it at
