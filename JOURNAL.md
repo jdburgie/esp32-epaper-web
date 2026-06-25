@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-24 — IP in both corners + weather detail overflow fix
+- IP label now drawn in **both** bottom corners (lower-left + right-aligned
+  lower-right) in `drawIpLabel()`. Right copy positioned by `len*6` (built-in
+  font glyph width).
+- Fixed weather **detail line overflowing** the 250px width (real panel photo
+  showed "Wind" with its value cut off): tightened `wx.detail` — dropped the "F"
+  after feels, triple→double spaces.
+- Open: a photo showed faint **ghosting** on the humidity digits ("58%" with a
+  prior value behind). Likely SSD1680 ghosting; remedy if it bothers: periodic
+  deep full-refresh / clearScreen pass. Not done yet.
+
 ### 2026-06-24 — Local Ambient Weather station (push) + layout mockup
 - **Third mode: Backyard Station.** The ESP32 now ingests the Ambient Weather
   console's "Customized" upload (AmbientWeather protocol) at **`/data/report/`** —

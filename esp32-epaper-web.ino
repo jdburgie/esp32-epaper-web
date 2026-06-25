@@ -105,15 +105,19 @@ String truncate(const String& s, uint8_t n) {
   return s.substring(0, n - 1) + ".";
 }
 
-// ---- Draw the IP in the built-in 6x8 font, bottom-left corner ----
+// ---- Draw the IP in the built-in 6x8 font, in BOTH bottom corners ----
 // Must be called from inside a firstPage/nextPage paged-draw loop. The
-// built-in font (setFont(NULL)) positions by the text's TOP-left.
+// built-in font (setFont(NULL)) positions by the text's TOP-left; each glyph
+// is 6 px wide, so the right copy is right-aligned by string length.
 void drawIpLabel() {
   if (ipText.length() == 0) return;
   display.setFont(NULL);            // classic 6x8 GFX font
   display.setTextSize(1);
   display.setTextColor(GxEPD_BLACK);
-  display.setCursor(2, display.height() - 8);
+  int y = display.height() - 8;
+  display.setCursor(2, y);                                 // lower-left
+  display.print(ipText);
+  display.setCursor(display.width() - ipText.length() * 6 - 2, y);  // lower-right
   display.print(ipText);
 }
 
@@ -246,8 +250,8 @@ bool fetchWeather() {
   wx.cond     = asciiOnly(String((const char*)(doc["weather"][0]["description"] | "")));
   wx.icon     = String((const char*)(doc["weather"][0]["icon"] | "01d"));
   if (wx.cond.length()) wx.cond.setCharAt(0, toupper(wx.cond[0]));
-  wx.detail   = "Feels " + String(wx.feels) + "F   Hum " + String(wx.humidity) +
-                "%   Wind " + String(wx.wind);
+  wx.detail   = "Feels " + String(wx.feels) + "  Hum " + String(wx.humidity) +
+                "%  Wind " + String(wx.wind);
   wx.valid    = true;
 
   weatherText = wx.city + " " + String(wx.temp) + "F, " + wx.cond;
