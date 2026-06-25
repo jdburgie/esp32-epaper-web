@@ -60,6 +60,20 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Battery (18650 + load sharing) + 3D-printed enclosure
+- Added an **`enclosure/`** project: parametric OpenSCAD case (`epaper-case.scad`)
+  → shell + front plate, rendered to STLs (clean 2-manifold, no supports). Holds
+  ESP32 on standoffs, 18650 in cradle saddles, charger module, USB slot + switch
+  hole, 4 corner M2.5 screws. All dims are top-of-file variables (measure & tweak).
+  OpenSCAD is installed at `C:\Program Files\OpenSCAD\openscad.exe`; re-render with
+  `openscad -D 'part="shell"' -o x.stl epaper-case.scad`.
+- **Power design (in enclosure/README):** load-sharing charger (Adafruit PowerBoost
+  1000C recommended, IP5306 module as budget) → 5 V into ESP32 VIN. Bare TP4056 is
+  NOT load-sharing — flagged. 18650 ~3000mAh → ~12–18 h (always-on server blocks
+  deep sleep). Firmware unchanged (still just 5 V on VIN).
+- Open follow-up offered: firmware **battery monitor** (18650+ via divider → ADC →
+  show battery % on the panel). Not built yet.
+
 ### 2026-06-25 — STATION DATA FLOWING. Fixed the `&` vs `?` URL quirk
 - Console finally pushed once Server was set to 192.168.12.50, but sent
   `query=0 NO FIELDS PARSED`. Full `/debug` dump revealed why: the **AMBWeatherPro

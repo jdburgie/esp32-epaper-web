@@ -3,6 +3,12 @@
 Drive a 2.13" e-paper panel from an ESP32 and change the text from any browser
 on your network. No app, no cloud — just type and submit.
 
+## Enclosure & battery
+
+A 3D-printable case and an 18650 + load-sharing-charger power design live in
+[`enclosure/`](enclosure/) — parametric OpenSCAD source plus ready-to-print STLs,
+a power BOM/wiring guide, and print/assembly notes.
+
 ## Hardware
 
 - **MCU:** NodeMCU ESP32 DevKit V1 (30-pin) on a dual breakout/expansion shield
