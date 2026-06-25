@@ -564,6 +564,7 @@ void drawClock() {
 void saveState() {
   prefs.putInt("mode", (int)mode);
   prefs.putString("zip", weatherZip);
+  prefs.putString("text", currentText);   // remember the message box text
   prefs.putBool("cycle", autoCycle);
 }
 
@@ -701,16 +702,20 @@ void setup() {
 
   configTzTime(TZ_INFO, "pool.ntp.org", "time.nist.gov");  // start NTP for the clock
 
-  // Restore last view from NVS: a saved ZIP defaults back to weather,
-  // otherwise fall to the default clock view.
+  // Restore last view from NVS: a saved ZIP defaults back to weather, a saved
+  // message restores the text screen, otherwise the default clock view.
   prefs.begin("epaper", false);
-  weatherZip = prefs.getString("zip", "");
-  autoCycle  = prefs.getBool("cycle", false);
+  weatherZip  = prefs.getString("zip", "");
+  currentText = prefs.getString("text", currentText);   // remembered message box text
+  autoCycle   = prefs.getBool("cycle", false);
   int savedMode = prefs.getInt("mode", MODE_CLOCK);
   if (savedMode == MODE_WEATHER && weatherZip.length()) {
     mode = MODE_WEATHER;
     fetchAndDrawWeather();
     lastWxFetch = millis();
+  } else if (savedMode == MODE_TEXT) {
+    mode = MODE_TEXT;
+    drawText(currentText);
   } else {
     mode = MODE_CLOCK;
     drawClock();

@@ -60,6 +60,14 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Persist the message box text
+- `saveState()` now also writes `currentText` to NVS ("text" key); boot restores
+  it (`prefs.getString("text", ...)`). Boot mode logic gained a `MODE_TEXT` branch
+  so a saved message screen comes back after a power cycle (was: text reset to
+  "Hello World!"; only mode+zip+cycle persisted).
+- Compile-only verified (ESP unplugged for measurements) — **needs a flash** next
+  time it's connected.
+
 ### 2026-06-25 — Made the web app a PWA (installable, home-screen)
 - Added `webapp/manifest.webmanifest`, `webapp/sw.js`, and icons (192/512/apple-
   touch, from Three Oak Woods branding). index.html: manifest link, theme-color,
