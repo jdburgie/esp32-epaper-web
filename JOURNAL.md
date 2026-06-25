@@ -60,6 +60,17 @@ history**.
 
 ## Log
 
+### 2026-06-25 — Weather views in the web app (`web-app` branch)
+- Enriched **`/status.json`**: weather now includes `feels/humidity/wind/icon`;
+  station includes `gustmph/dailyrain/baromin/winddir`.
+- SPA `webapp/index.html` gained two **view cards**: a **Forecast** card (emoji
+  icon via OWM code, big temp, city, condition, feels/humidity/wind) and a
+  **Backyard station** card (temp, humidity, wind+compass, gust, rain, pressure).
+  Moved the small weather/station stats out of the status card.
+- Verified live: status.json shows Greeley 62F/79%/wind 3/icon 10n. JS syntax
+  checked, div tags balanced. (Merged main into web-app first so the branch has
+  battery/button/cycle/enclosure too.)
+
 ### 2026-06-25 — `web-app` branch: standalone browser SPA
 *(this entry exists on the `web-app` branch)*
 - Firmware (branch only): added **`/status.json`** (mode, ip, autoCycle, text,

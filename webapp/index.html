@@ -59,13 +59,21 @@
     <div class="grid" style="margin-top:12px">
       <div class="stat"><div class="k">Battery</div><div class="v" id="batt">—</div></div>
       <div class="stat"><div class="k">Auto-cycle</div><div class="v" id="cyc">—</div></div>
-      <div class="stat"><div class="k">Weather</div><div class="v" id="wx">—</div></div>
-      <div class="stat"><div class="k">Station</div><div class="v" id="stn">—</div></div>
     </div>
     <div class="row" style="margin-top:12px">
       <button class="ghost" data-act="/next">Next screen →</button>
       <button id="cycbtn" data-act="/cycle">Auto-cycle</button>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Forecast <span class="muted" id="wxsrc" style="font-weight:400"></span></h2>
+    <div id="wxbody" class="muted">—</div>
+  </div>
+
+  <div class="card">
+    <h2>Backyard station <span class="muted" id="stnage" style="font-weight:400"></span></h2>
+    <div id="stnbody" class="muted">—</div>
   </div>
 
   <div class="card">
@@ -117,6 +125,48 @@ document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => act(b.dat
 $('#wxbtn').onclick = () => { const z=$('#zip').value.trim(); if(z) act('/weather?zip='+encodeURIComponent(z)); };
 $('#setbtn').onclick = () => act('/set?msg='+encodeURIComponent($('#msg').value));
 
+const ICON = c => ({ '01':'☀️','02':'🌤️','03':'⛅','04':'☁️','09':'🌧️',
+  '10':'🌦️','11':'⛈️','13':'❄️','50':'🌫️' }[(c||'').slice(0,2)] || '🌡️');
+const COMPASS = d => (d==null||d<0) ? '' :
+  ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(d/22.5)%16];
+const stat = (k,v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+function renderWeather(w){
+  if(!w || !w.valid){
+    $('#wxsrc').textContent = '';
+    $('#wxbody').innerHTML = '<span class="muted">No weather yet — enter a ZIP below and tap Show weather.</span>';
+    return;
+  }
+  $('#wxsrc').textContent = '· OpenWeatherMap';
+  $('#wxbody').innerHTML =
+    `<div style="display:flex;align-items:center;gap:14px">
+       <div style="font-size:2.8em;line-height:1">${ICON(w.icon)}</div>
+       <div><div style="font-size:2em;font-weight:800">${w.temp}°F</div>
+         <div style="font-weight:700">${w.city||('ZIP '+w.zip)}</div>
+         <div class="muted" style="text-transform:capitalize">${w.cond||''}</div></div>
+     </div>
+     <div class="grid" style="margin-top:12px;grid-template-columns:1fr 1fr 1fr">
+       ${stat('Feels', w.feels+'°')}${stat('Humidity', w.humidity+'%')}${stat('Wind', w.wind+' mph')}
+     </div>`;
+}
+
+function renderStation(s){
+  if(!s || !s.received){
+    $('#stnage').textContent = '';
+    $('#stnbody').innerHTML = '<span class="muted">No push yet — point your Ambient console at this device.</span>';
+    return;
+  }
+  $('#stnage').textContent = '· live';
+  const cells = [];
+  if(s.tempf!=null)    cells.push(stat('Temp', Math.round(s.tempf)+'°F'));
+  if(s.humidity!=null) cells.push(stat('Humidity', Math.round(s.humidity)+'%'));
+  if(s.windmph!=null)  cells.push(stat('Wind', Math.round(s.windmph)+' '+COMPASS(s.winddir)));
+  if(s.gustmph!=null)  cells.push(stat('Gust', Math.round(s.gustmph)+' mph'));
+  if(s.dailyrain!=null)cells.push(stat('Rain today', (+s.dailyrain).toFixed(2)+'"'));
+  if(s.baromin!=null)  cells.push(stat('Pressure', (+s.baromin).toFixed(2)+' inHg'));
+  $('#stnbody').innerHTML = `<div class="grid" style="grid-template-columns:1fr 1fr 1fr">${cells.join('')}</div>`;
+}
+
 async function poll(){
   try {
     const r = await fetch(host+'/status.json', {mode:'cors'});
@@ -128,9 +178,8 @@ async function poll(){
     $('#batt').textContent = d.battValid ? (d.battPct+'%  ·  '+(+d.battVolts).toFixed(2)+' V') : '— (no cell)';
     $('#cyc').innerHTML = '<span class="dot '+(d.autoCycle?'on':'')+'"></span>'+(d.autoCycle?'On':'Off');
     $('#cycbtn').textContent = d.autoCycle ? 'Stop cycling' : 'Auto-cycle';
-    $('#wx').textContent = d.weather?.valid ? (d.weather.city+' '+d.weather.temp+'°') : (d.weather?.zip ? 'ZIP '+d.weather.zip : '—');
-    $('#stn').textContent = d.station?.received ? (Math.round(d.station.tempf)+'°F') : 'no data';
-    if(!$('#msg').matches(':focus') && d.text!==undefined) { /* keep field if user typing */ }
+    renderWeather(d.weather);
+    renderStation(d.station);
     if(d.weather?.zip && !$('#zip').value) $('#zip').value = d.weather.zip;
   } catch(e){
     $('#dot').classList.remove('on'); $('#conn').textContent = 'not connected — check the address';

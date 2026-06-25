@@ -18,7 +18,11 @@ endpoint for live state (mode, battery, weather, station).
 
 ## What it does
 - **Live status** every 5 s from `/status.json`: current screen, battery %/volts,
-  auto-cycle state, weather (city/temp), station (temp).
+  auto-cycle state.
+- **Weather view:** OpenWeatherMap conditions — emoji icon, big temp, city,
+  description, and feels-like / humidity / wind.
+- **Backyard station view:** live console data — temp, humidity, wind + compass
+  direction, gust, rain today, and pressure.
 - **Controls** (call the device's existing endpoints):
   - Screens: Clock, Station, Weather (with ZIP), Next, Auto-cycle toggle.
   - Text: multi-line note → Update display.
