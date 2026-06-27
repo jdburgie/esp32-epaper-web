@@ -7,6 +7,25 @@ history**.
 
 ---
 
+## 2026-06-26 — ⚠️ board accidentally reflashed as the sprinkler; recovery prepped
+
+The deployed e-paper board (ESP32-D0WD-V3 on a DOIT DevKit, MAC `08:b6:1f:f0:01:64`,
+static IP `192.168.12.50`) was mistaken for a spare and **reflashed with the
+`esp32-sprinkler-controller` firmware** — it now runs the sprinkler at `192.168.12.51`.
+The e-paper firmware was overwritten (nothing physically damaged). Caught via ARP:
+`.50` → that MAC, and `.50` no longer answers HTTP.
+
+Recovery prep (done this session): re-cloned the repo, recreated `secrets.h` (Wi-Fi creds;
+`OWM_API_KEY` left blank pending the key), and `pio run` builds clean (35% of the 3 MB
+`huge_app` partition).
+
+**To restore:** a 30-pin ESP32 DevKit V1 + the Inland 2.13" panel, then
+`pio run -e esp32dev -t upload`. Open decision: re-use the original board (and move the
+sprinkler onto a different ESP32) vs. rebuild the e-paper on a second board. Need the
+OpenWeatherMap key for weather mode (clock/text/station work without it).
+
+---
+
 ## Working from another computer (bootstrap)
 
 1. **Clone the repo** and open the folder.
