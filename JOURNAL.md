@@ -7,7 +7,7 @@ history**.
 
 ---
 
-## 2026-06-26 — ⚠️ board accidentally reflashed as the sprinkler; recovery prepped
+## 2026-06-26 — board reflashed as the sprinkler by mistake; ✅ RESTORED on a new board
 
 The deployed e-paper board (ESP32-D0WD-V3 on a DOIT DevKit, MAC `08:b6:1f:f0:01:64`,
 static IP `192.168.12.50`) was mistaken for a spare and **reflashed with the
@@ -23,6 +23,15 @@ Recovery prep (done this session): re-cloned the repo, recreated `secrets.h` (Wi
 `pio run -e esp32dev -t upload`. Open decision: re-use the original board (and move the
 sprinkler onto a different ESP32) vs. rebuild the e-paper on a second board. Need the
 OpenWeatherMap key for weather mode (clock/text/station work without it).
+
+**RESOLVED same day:** flashed the e-paper firmware onto a fresh spare ESP32 — an
+**ESP32-D0WDQ6, MAC `24:0a:c4:12:88:18`** (it had only the stock "Hello from ESP32!"
+demo on it; verified first this time). Boots clean, serves the "Three Oak Woods Display"
+control page, and pinned back to **static `192.168.12.50`** (added the `USE_STATIC_IP`
+block to `secrets.h`). Sprinkler left untouched on its own board (`.51`). **Still TODO:**
+wire the Inland 2.13" panel to this board (`MOSI→23, SCLK→18, CS→5, DC→19, RES→16,
+BUSY→4, VCC→3V3, GND→GND`, P2→3.3VIN) so the display physically draws, and add the OWM
+key for weather mode.
 
 ---
 
