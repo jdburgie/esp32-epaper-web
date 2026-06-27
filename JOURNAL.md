@@ -88,6 +88,24 @@ key for weather mode.
 
 ## Log
 
+### 2026-06-25 — Diagnosed "fried" board: MCU alive, panel not responding
+- User plugged a battery into an e-paper board and feared it was fried. Checked
+  the board on **COM7** (note: COM moved from COM3).
+- **ESP32 is healthy:** esptool read it — ESP32-D0WDQ6 rev1.0, **MAC
+  `24:0a:c4:12:88:18`**. Serial shows a clean POWERON boot, Wi-Fi connects, firmware
+  runs ("Ready… http://192.168.12.50"). No brown-out loop / panic. MCU not fried.
+- **Panel is the casualty (or unplugged):** GxEPD2 timings read `_Update_Full : 1`
+  / `_PowerOn : 25` vs a healthy panel's `~2,150,000` / `~95,000` — i.e. the BUSY
+  line never responds, so the panel isn't connected/powered/working.
+- **Two-board surprise:** the board running live at .50 on the network is a
+  *different* unit (**MAC `08:b6:1f:f0:01:64`**) — that's the one flashed/tested all
+  session. The COM7 board (`24:0a:c4`) is the user's battery experiment. Both are
+  set to **static .50 → IP conflict** if powered together.
+- Side note: COM7 board's serial showed `OWM fetch failed: code=401` (stale/invalid
+  OpenWeatherMap key on that board's flash).
+- **Awaiting from user:** panel wiring/symptom + how the battery was wired, to tell
+  panel-damage vs loose-connection apart. Offered a BUSY-pin test flash.
+
 ### 2026-06-25 — Text long messages: 4-line PAGING (partial scroll abandoned)
 - **Partial-refresh line scroll didn't work on this panel** — overlaid/looked bad
   even after the no-hibernate fix. Abandoned it.
@@ -387,6 +405,10 @@ key for weather mode.
 
 ## Open follow-ups (not started)
 
+- **TODO: COM7 board (`24:0a:c4`) panel** — confirm panel wiring/symptom; if the
+  panel's controller is dead (BUSY non-responsive after reseating), replace panel.
+  Also give this board its own static IP (currently clashes with .50) + refresh its
+  OWM key.
 - ~~TODO (2026-06-25): add weather views to the web page~~ **DONE** — SPA Forecast
   + Backyard station cards; `/status.json` enriched. Web app now served at `/app`.
 - **TODO (2026-06-25): "remember test"** — read as: test the new button + battery
