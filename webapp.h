@@ -113,6 +113,9 @@ const char WEBAPP_HTML[] = R"WEBAPP(
 
   <button id="install" hidden style="margin-top:10px">Install app</button>
 
+  <p style="text-align:center;margin:14px 0 0">
+    <a id="classic" href="/" style="color:var(--green);font-weight:700;text-decoration:none">&larr; Classic control page</a>
+  </p>
   <footer>Three Oak Woods · e-paper web app</footer>
 </div>
 
@@ -129,6 +132,7 @@ function setHost(){
   localStorage.setItem('epaperHost', host);
   $('#host').value = host;
   $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false;
+  $('#classic').href = host+'/';
   poll();
 }
 $('#save').onclick = setHost;
@@ -204,7 +208,7 @@ async function poll(){
   }
 }
 
-if(host){ $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false; }
+if(host){ $('#logo').src = host+'/logo.svg'; $('#logo').hidden = false; $('#classic').href = host+'/'; }
 poll();
 setInterval(poll, 5000);
 
