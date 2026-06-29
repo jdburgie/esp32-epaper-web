@@ -88,6 +88,24 @@ key for weather mode.
 
 ## Log
 
+### 2026-06-25 — OTA updates + fixed the OWM 401
+- **OWM 401 wasn't a bad key.** Tested `ff86a6…` directly vs the OWM API — valid
+  (returned live Greeley data). The deployed board just had a **stale/blank key**
+  in its flash (restored with the key pending). Re-flashing from current
+  `secrets.h` fixed it — weather fetches again (`valid:true`, "Greeley 84F").
+- **OTA (`ArduinoOTA`)** added: hostname `epaper`, port 3232, `handle()` in loop,
+  optional `OTA_PASSWORD` via secrets.h. New `[env:esp32dev_ota]` (espota,
+  upload_port = device IP) → `pio run -e esp32dev_ota -t upload`.
+- **Partition fix (the gotcha):** OTA needs **two app partitions**; `huge_app.csv`
+  has only one, so OTA failed at 0%. Switched to **`min_spiffs.csv`** (2 × ~1.9 MB
+  slots; fw is ~1.15 MB → 58.7%). Requires one **USB** flash to apply the new
+  partition table, then OTA works.
+- **Verified end-to-end:** serial-flashed the new scheme to the e-paper board
+  (COM7, `24:0a:c4`), then flashed it **over Wi-Fi** (`Result: OK`, 100%); it
+  rebooted clean and weather still valid. NVS persistence survived the change
+  (nvs stays at 0x9000).
+- platformio.ini `upload_port` updated COM3 → COM7 (board's current port).
+
 ### 2026-06-25 — Diagnosed "fried" board: MCU alive, panel not responding
 - User plugged a battery into an e-paper board and feared it was fried. Checked
   the board on **COM7** (note: COM moved from COM3).
@@ -405,10 +423,9 @@ key for weather mode.
 
 ## Open follow-ups (not started)
 
-- **TODO: COM7 board (`24:0a:c4`) panel** — confirm panel wiring/symptom; if the
-  panel's controller is dead (BUSY non-responsive after reseating), replace panel.
-  Also give this board its own static IP (currently clashes with .50) + refresh its
-  OWM key.
+- **TODO: e-paper board (`24:0a:c4`, .50) panel** — wire/reseat the Inland 2.13"
+  panel to it (re-wiring was pending); if BUSY stays non-responsive, replace the
+  panel. (OWM key on this board now fixed; no IP clash — sprinkler is on .51.)
 - ~~TODO (2026-06-25): add weather views to the web page~~ **DONE** — SPA Forecast
   + Backyard station cards; `/status.json` enriched. Web app now served at `/app`.
 - **TODO (2026-06-25): "remember test"** — read as: test the new button + battery

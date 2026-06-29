@@ -79,6 +79,16 @@ OpenWeatherMap key works; if you don't need weather, any non-empty string is fin
 - **Arduino IDE:** open `esp32-epaper-web.ino`, install the libraries listed above,
   select your ESP32 board + port, and upload.
 
+**Over-the-air (OTA) updates.** After the first USB flash, the device runs
+`ArduinoOTA` (hostname `epaper`, port 3232), so you can flash over Wi-Fi:
+```
+pio run -e esp32dev_ota -t upload        # uploads to upload_port (device IP) in platformio.ini
+```
+The partition scheme is `min_spiffs.csv` (two ~1.9 MB app slots) — OTA needs two
+app partitions, so a USB flash with this scheme is required once before OTA works.
+For a password, add `#define OTA_PASSWORD "…"` to `secrets.h` and set
+`upload_flags = --auth=…` in the `esp32dev_ota` env.
+
 **3. Use it.** Open the serial monitor at **115200** — it prints the device IP once
 Wi-Fi connects. Browse to that IP. The current IP is also shown in the bottom-left
 of the panel at all times.

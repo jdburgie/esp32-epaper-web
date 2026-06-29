@@ -22,6 +22,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <Preferences.h>
@@ -728,6 +729,17 @@ void setup() {
   }
   lastDeep = millis();     // start the deep-refresh timer from boot
 
+  // ---- OTA: flash new firmware over Wi-Fi (no USB) ----
+  ArduinoOTA.setHostname("epaper");          // shows up as epaper.local / port 3232
+#ifdef OTA_PASSWORD
+  ArduinoOTA.setPassword(OTA_PASSWORD);      // optional, set in secrets.h
+#endif
+  ArduinoOTA.onStart([]() { Serial.println("OTA: update starting"); });
+  ArduinoOTA.onEnd([]()   { Serial.println("OTA: done, rebooting"); });
+  ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", e); });
+  ArduinoOTA.begin();
+  Serial.println("OTA ready (espota @ epaper / " + ipText + ":3232)");
+
   // Allow the standalone web app (different origin) to read the API.
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
@@ -928,6 +940,8 @@ void setup() {
 }
 
 void loop() {
+  ArduinoOTA.handle();   // service Wi-Fi firmware updates
+
   // Execute whatever the web handlers queued (blocking SPI/TLS work lives here).
   Pending job = pending;
   if (job != P_NONE) {
