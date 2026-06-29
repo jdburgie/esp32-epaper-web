@@ -119,7 +119,7 @@ volatile Pending pending = P_NONE;
 // Battery monitor — auto-shows only when a plausible 18650 voltage is present.
 float battVolts = 0; int battPct = -1; bool battValid = false;
 unsigned long lastBatt = 0;
-const unsigned long BATT_MS = 30UL * 1000UL;
+const unsigned long BATT_MS = 5UL * 1000UL;   // sample every 5 s (responsive while wiring)
 
 // Screen cycling (auto). Physical button advances manually regardless.
 bool autoCycle = false;
@@ -905,6 +905,7 @@ void setup() {
     d["battValid"] = battValid;
     d["battPct"]   = battPct;
     d["battVolts"] = battVolts;
+    d["battRawMv"] = analogReadMilliVolts(PIN_BATT);   // live GPIO34 reading (divider debug)
     JsonObject w = d["weather"].to<JsonObject>();
     w["zip"] = weatherZip; w["valid"] = wx.valid; w["city"] = wx.city;
     w["temp"] = wx.temp; w["feels"] = wx.feels; w["humidity"] = wx.humidity;

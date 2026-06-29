@@ -195,7 +195,9 @@ async function poll(){
     $('#status').textContent = ({clock:'Clock (date & time)',text:d.text||'Text',
       weather:'Weather — '+(d.weather?.summary||d.weather?.zip||''),
       station:'Station — '+(d.station?.summary||'')})[d.mode] || d.mode;
-    $('#batt').textContent = d.battValid ? (d.battPct+'%  ·  '+(+d.battVolts).toFixed(2)+' V') : '— (no cell)';
+    $('#batt').textContent = d.battValid
+      ? (d.battPct+'%  ·  '+(+d.battVolts).toFixed(2)+' V')
+      : ('no cell · GPIO34 '+(d.battRawMv ?? '?')+' mV');
     $('#cyc').innerHTML = '<span class="dot '+(d.autoCycle?'on':'')+'"></span>'+(d.autoCycle?'On':'Off');
     $('#cycbtn').textContent = d.autoCycle ? 'Stop cycling' : 'Auto-cycle';
     renderWeather(d.weather);
