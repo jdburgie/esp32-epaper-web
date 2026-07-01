@@ -7,6 +7,35 @@ history**.
 
 ---
 
+## 2026-07-01 — Third board discovered on COM9; flashed with e-paper firmware
+A board plugged into **COM9** (Silicon Labs CP210x) turned out to be **yet
+another** physical ESP32 — MAC `24:0a:c4:12:87:b4` (distinct from the deployed
+unit `24:0a:c4:12:88:18` at `.50`). It was running unknown custom firmware,
+stuck trying to join a Wi-Fi network called **"Three Oak Wood2"** (not the real
+"Three Oak Wood" network) — never verified against any known project in memory.
+
+Per user direction, flashed it with the e-paper project so it joins the correct
+network. **Static IP had to be temporarily disabled** for this flash (`secrets.h`
+`USE_STATIC_IP` briefly commented out) — the default `192.168.12.50` is already
+claimed by the deployed board, and flashing both with the same static IP would
+have caused a conflict. `secrets.h` was restored to its normal static-IP state
+immediately after. This board is now on **DHCP** at `192.168.12.216`, OTA-ready
+(`epaper.local` / `192.168.12.216:3232`), verified via HTTP (`mode:"clock"`).
+
+**Same "no panel" signature as before** (`_Update_Full : 1`) — expected, this is
+presumably a bare dev board with no e-paper module wired yet.
+
+⚠️ **mDNS hostname collision:** both this board and the deployed `.50` unit
+advertise OTA under the same hostname `"epaper"` — `epaper.local` will be
+ambiguous with two boards live. Give this board a distinct `ArduinoOTA.setHostname()`
+if it stays on the network long-term (not yet done).
+
+**Open questions for the user:** what is this third board for? If it's meant to
+replace/relocate the deployed unit, give it the `.50` static IP (and retire the
+old one) rather than leaving it on DHCP.
+
+---
+
 ## 2026-06-26 — board reflashed as the sprinkler by mistake; ✅ RESTORED on a new board
 
 The deployed e-paper board (ESP32-D0WD-V3 on a DOIT DevKit, MAC `08:b6:1f:f0:01:64`,
