@@ -30,9 +30,13 @@ advertise OTA under the same hostname `"epaper"` — `epaper.local` will be
 ambiguous with two boards live. Give this board a distinct `ArduinoOTA.setHostname()`
 if it stays on the network long-term (not yet done).
 
-**Open questions for the user:** what is this third board for? If it's meant to
-replace/relocate the deployed unit, give it the `.50` static IP (and retire the
-old one) rather than leaving it on DHCP.
+**Resolved same session:** user confirmed this board **replaces `.50`** ("just
+playing around"). Re-flashed with static IP restored — now live at
+**`192.168.12.50`**, confirmed via ARP (`24-0a-c4-12-87-b4` answering at `.50`,
+no conflict). The old deployed unit (`24:0a:c4:12:88:18`) is retired/superseded;
+if it's ever powered on the same network again it'll IP-conflict with this one —
+unplug it or give it a different address if kept around. OTA hostname collision
+note above no longer applies unless the old board comes back online.
 
 ---
 
