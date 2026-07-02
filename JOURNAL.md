@@ -7,6 +7,27 @@ history**.
 
 ---
 
+## 2026-07-02 — Web app: "Show all data" for the backyard station
+Previously the firmware only kept 7 fields from the Ambient console's push
+(temp/humidity/wind/gust/rain-today/pressure/wind-dir) — everything else the
+console sends was parsed into `/debug` logs but discarded. Expanded the
+`Station` struct + `onReport` parsing to keep **all ~26 fields**: 10-min avg
+wind speed/direction, max daily gust, UV index, solar radiation, all six rain
+intervals (hourly/event/daily/weekly/monthly/yearly), absolute + relative
+pressure, indoor temp/humidity, sensor battery flags, lightning strikes today,
+station type, and the UTC observation timestamp. All exposed via `/status.json`.
+
+Web app gained a **"Show all data ▾"** toggle under the Backyard Station card —
+expands a grouped table (Outdoor / Rain / Pressure / Indoor / Sensors) with
+friendly labels + units for every field the console actually reported (fields
+not sent by a given station just don't show a row). Curated summary cards and
+the physical panel view are unchanged — this is purely additive.
+
+Flashed via **OTA** (no cable). Verified live: full 26-field payload in
+`/status.json`, toggle present in the served `/app` page.
+
+---
+
 ## 2026-07-01 — Third board discovered on COM9; flashed with e-paper firmware
 A board plugged into **COM9** (Silicon Labs CP210x) turned out to be **yet
 another** physical ESP32 — MAC `24:0a:c4:12:87:b4` (distinct from the deployed
