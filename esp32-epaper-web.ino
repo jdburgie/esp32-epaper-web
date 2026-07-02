@@ -97,11 +97,26 @@ struct Wx {
 } wx;
 
 // Live data pushed by the Ambient Weather console to /data/report/ (its
-// "Customized" upload, AmbientWeather protocol). NAN = field not reported.
+// "Customized" upload, AmbientWeather protocol). NAN/-1/"" = field not reported.
+// Full field set the console actually sends (captured via /debug) — the curated
+// panel/summary views only use a subset; the web app's "all data" view uses all.
 struct Station {
+  // Outdoor — core (used by the panel + curated summary)
   float tempf = NAN, humidity = NAN, windmph = NAN, gustmph = NAN;
   float dailyrain = NAN, baromin = NAN;
   int   winddir = -1;
+  // Outdoor — extended
+  float windmph10m = NAN, maxdailygust = NAN;
+  int   winddir10m = -1;
+  float uv = NAN, solarradiation = NAN;
+  float hourlyrain = NAN, eventrain = NAN, weeklyrain = NAN, monthlyrain = NAN, yearlyrain = NAN;
+  float baromabsin = NAN;
+  // Indoor
+  float tempinf = NAN, humidityin = NAN;
+  // Sensor battery flags + lightning
+  int   battout = -1, battin = -1, batt_lightning = -1, lightning_day = -1;
+  // Meta
+  String dateutc, stationtype;
   unsigned long lastUpdate = 0;   // millis() of last push
   bool  received = false;
 } st;
@@ -871,6 +886,28 @@ void setup() {
     String b = rd("baromrelin");    if (b.length()) st.baromin   = b.toFloat();
     String d = rd("winddir");       if (d.length()) st.winddir   = d.toInt();
 
+    // Extended fields — everything else the AMBWeatherPro console sends, so the
+    // web app's "all data" view has the full picture (not just the curated set).
+    String w10 = rd("windspdmph_avg10m"); if (w10.length()) st.windmph10m    = w10.toFloat();
+    String mg  = rd("maxdailygust");      if (mg.length())  st.maxdailygust  = mg.toFloat();
+    String d10 = rd("winddir_avg10m");    if (d10.length()) st.winddir10m    = d10.toInt();
+    String uv  = rd("uv");                if (uv.length())  st.uv           = uv.toFloat();
+    String sr  = rd("solarradiation");    if (sr.length())  st.solarradiation = sr.toFloat();
+    String hr  = rd("hourlyrainin");      if (hr.length())  st.hourlyrain   = hr.toFloat();
+    String er  = rd("eventrainin");       if (er.length())  st.eventrain    = er.toFloat();
+    String wr  = rd("weeklyrainin");      if (wr.length())  st.weeklyrain   = wr.toFloat();
+    String mr  = rd("monthlyrainin");     if (mr.length())  st.monthlyrain  = mr.toFloat();
+    String yr  = rd("yearlyrainin");      if (yr.length())  st.yearlyrain   = yr.toFloat();
+    String ba  = rd("baromabsin");        if (ba.length())  st.baromabsin   = ba.toFloat();
+    String ti  = rd("tempinf");           if (ti.length())  st.tempinf      = ti.toFloat();
+    String hi  = rd("humidityin");        if (hi.length())  st.humidityin   = hi.toFloat();
+    String bo  = rd("battout");           if (bo.length())  st.battout      = bo.toInt();
+    String bi  = rd("battin");            if (bi.length())  st.battin       = bi.toInt();
+    String bl  = rd("batt_lightning");    if (bl.length())  st.batt_lightning = bl.toInt();
+    String ld  = rd("lightning_day");     if (ld.length())  st.lightning_day = ld.toInt();
+    String du  = rd("dateutc");           if (du.length())  st.dateutc      = du;
+    String sty = rd("stationtype");       if (sty.length()) st.stationtype  = sty;
+
     bool got = t.length() > 0;
     if (got) {
       st.lastUpdate = millis();
@@ -920,6 +957,26 @@ void setup() {
     if (!isnan(st.dailyrain)) s["dailyrain"] = st.dailyrain;
     if (!isnan(st.baromin))   s["baromin"]   = st.baromin;
     if (st.winddir >= 0)      s["winddir"]   = st.winddir;
+    // Extended fields for the web app's "all data" view.
+    if (!isnan(st.windmph10m))     s["windmph10m"]    = st.windmph10m;
+    if (!isnan(st.maxdailygust))   s["maxdailygust"]  = st.maxdailygust;
+    if (st.winddir10m >= 0)        s["winddir10m"]    = st.winddir10m;
+    if (!isnan(st.uv))             s["uv"]            = st.uv;
+    if (!isnan(st.solarradiation)) s["solarradiation"]= st.solarradiation;
+    if (!isnan(st.hourlyrain))     s["hourlyrain"]    = st.hourlyrain;
+    if (!isnan(st.eventrain))      s["eventrain"]     = st.eventrain;
+    if (!isnan(st.weeklyrain))     s["weeklyrain"]    = st.weeklyrain;
+    if (!isnan(st.monthlyrain))    s["monthlyrain"]   = st.monthlyrain;
+    if (!isnan(st.yearlyrain))     s["yearlyrain"]    = st.yearlyrain;
+    if (!isnan(st.baromabsin))     s["baromabsin"]    = st.baromabsin;
+    if (!isnan(st.tempinf))        s["tempinf"]       = st.tempinf;
+    if (!isnan(st.humidityin))     s["humidityin"]    = st.humidityin;
+    if (st.battout >= 0)           s["battout"]       = st.battout;
+    if (st.battin >= 0)            s["battin"]        = st.battin;
+    if (st.batt_lightning >= 0)    s["batt_lightning"]= st.batt_lightning;
+    if (st.lightning_day >= 0)     s["lightning_day"] = st.lightning_day;
+    if (st.dateutc.length())       s["dateutc"]       = st.dateutc;
+    if (st.stationtype.length())   s["stationtype"]   = st.stationtype;
     s["summary"] = stationSummary();
     String out; serializeJson(d, out);
     req->send(200, "application/json", out);

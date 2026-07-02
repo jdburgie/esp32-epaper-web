@@ -44,6 +44,11 @@ const char WEBAPP_HTML[] = R"WEBAPP(
   .stat .k{font-size:.72em;text-transform:uppercase;letter-spacing:.04em;color:var(--green);font-weight:700}
   .stat .v{font-size:1.15em;font-weight:800;margin-top:2px}
   .muted{color:#7a786e;font-size:.85em}
+  .dtbl{width:100%;border-collapse:collapse;font-size:.92em}
+  .dtbl td{padding:4px 0;border-bottom:1px solid #efe9da}
+  .dtbl td:last-child{text-align:right;font-weight:700}
+  .dgroup{font-weight:700;text-transform:uppercase;font-size:.72em;letter-spacing:.04em;color:var(--green);margin:12px 0 2px}
+  .dgroup:first-child{margin-top:2px}
   footer{text-align:center;color:var(--green);font-size:.8em;margin-top:6px;opacity:.85}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:6px;vertical-align:1px}
   .dot.on{background:var(--green)}
@@ -86,6 +91,8 @@ const char WEBAPP_HTML[] = R"WEBAPP(
   <div class="card">
     <h2>Backyard station <span class="muted" id="stnage" style="font-weight:400"></span></h2>
     <div id="stnbody" class="muted">—</div>
+    <button class="ghost" id="stnAllToggle" style="margin-top:10px" hidden>Show all data ▾</button>
+    <div id="stnAllBody" hidden style="margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -174,6 +181,8 @@ function renderStation(s){
   if(!s || !s.received){
     $('#stnage').textContent = '';
     $('#stnbody').innerHTML = '<span class="muted">No push yet — point your Ambient console at this device.</span>';
+    $('#stnAllToggle').hidden = true;
+    $('#stnAllBody').hidden = true;
     return;
   }
   $('#stnage').textContent = '· live';
@@ -185,7 +194,63 @@ function renderStation(s){
   if(s.dailyrain!=null)cells.push(stat('Rain today', (+s.dailyrain).toFixed(2)+'"'));
   if(s.baromin!=null)  cells.push(stat('Pressure', (+s.baromin).toFixed(2)+' inHg'));
   $('#stnbody').innerHTML = `<div class="grid" style="grid-template-columns:1fr 1fr 1fr">${cells.join('')}</div>`;
+  $('#stnAllToggle').hidden = false;
+  renderStationAll(s);
 }
+
+// [jsonKey, label, unit, decimals, isCompassDir]
+const STN_ALL_FIELDS = [
+  ['Outdoor', [
+    ['tempf','Temp','°F',1], ['humidity','Humidity','%',0],
+    ['windmph','Wind','mph',1], ['windmph10m','Wind (10-min avg)','mph',1],
+    ['winddir','Wind direction','',0,true], ['winddir10m','Wind dir (10-min avg)','',0,true],
+    ['gustmph','Gust','mph',1], ['maxdailygust','Max gust today','mph',1],
+    ['uv','UV index','',0], ['solarradiation','Solar radiation','W/m²',0],
+  ]],
+  ['Rain', [
+    ['hourlyrain','Last hour','"',2], ['eventrain','This event','"',2],
+    ['dailyrain','Today','"',2], ['weeklyrain','This week','"',2],
+    ['monthlyrain','This month','"',2], ['yearlyrain','This year','"',2],
+  ]],
+  ['Pressure', [
+    ['baromin','Relative','inHg',2], ['baromabsin','Absolute','inHg',2],
+  ]],
+  ['Indoor', [
+    ['tempinf','Temp','°F',1], ['humidityin','Humidity','%',0],
+  ]],
+  ['Sensors', [
+    ['battout','Outdoor battery (raw)','',0], ['battin','Indoor battery (raw)','',0],
+    ['batt_lightning','Lightning battery (raw)','',0], ['lightning_day','Lightning strikes today','',0],
+  ]],
+];
+
+function renderStationAll(s){
+  let html = '';
+  for (const [group, fields] of STN_ALL_FIELDS) {
+    const rows = fields.filter(([k]) => s[k] != null);
+    if (!rows.length) continue;
+    html += `<div class="dgroup">${group}</div><table class="dtbl">`;
+    for (const [k, label, unit, dec, isDir] of rows) {
+      const raw = s[k];
+      const v = isDir ? (raw + '° ' + COMPASS(raw))
+                       : ((typeof raw === 'number' ? raw.toFixed(dec) : raw) + (unit ? ' '+unit : ''));
+      html += `<tr><td>${label}</td><td>${v}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  const meta = [];
+  if (s.stationtype) meta.push('Station: '+s.stationtype);
+  if (s.dateutc) meta.push('Last observation (UTC): '+s.dateutc);
+  if (meta.length) html += `<div class="muted" style="margin-top:8px">${meta.join(' · ')}</div>`;
+  $('#stnAllBody').innerHTML = html || '<span class="muted">No extended fields reported.</span>';
+}
+
+let stnAllOpen = false;
+$('#stnAllToggle').onclick = () => {
+  stnAllOpen = !stnAllOpen;
+  $('#stnAllBody').hidden = !stnAllOpen;
+  $('#stnAllToggle').textContent = stnAllOpen ? 'Hide all data ▴' : 'Show all data ▾';
+};
 
 async function poll(){
   try {
