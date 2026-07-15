@@ -1,7 +1,8 @@
 # ESP32 E-Paper Web Display
 
-Drive a 2.13" e-paper panel from an ESP32 and change the text from any browser
-on your network. No app, no cloud — just type and submit.
+Drive a 2.13" e-paper panel from an ESP32 (or an ESP8266/ESP-12E — see below)
+and change the text from any browser on your network. No app, no cloud — just
+type and submit.
 
 ## Enclosure & battery
 
@@ -39,7 +40,8 @@ right-side header.
 - GxEPD2 (Jean-Marc Zingg)
 - Adafruit GFX (dependency of GxEPD2)
 - ESPAsyncWebServer (ESP32Async / me-no-dev)
-- AsyncTCP (ESP32 version)
+- AsyncTCP (ESP32) — use **ESPAsyncTCP** instead if building for ESP8266 (see
+  "ESP8266 (ESP-12E) port" below)
 
 ## Setup
 
@@ -93,6 +95,14 @@ For a password, add `#define OTA_PASSWORD "…"` to `secrets.h` and set
 Wi-Fi connects. Browse to that IP. The current IP is also shown in the bottom-left
 of the panel at all times.
 
+**If Wi-Fi doesn't connect** (wrong password, network out of range, moved to a
+new house), the device doesn't hang or go dark. After ~20s it starts a recovery
+**access point** — the panel itself displays the AP name and its IP
+(`192.168.4.1`). Connect a phone/laptop to that AP, browse to the IP, and use the
+**Wi-Fi card** on the page to enter new credentials; the device saves them and
+reboots to try again. This also means you can change Wi-Fi networks later without
+re-flashing — the Wi-Fi card is always on the page, not just during recovery.
+
 ## Display modes
 
 The control page (themed in the **Three Oak Woods** brand — palette, Nunito, and
@@ -113,9 +123,11 @@ the acorn badge served from `logo.h` at `/logo.svg`) offers these modes:
 The page also has a **Clean (de-ghost)** button that flashes the panel black↔white
 to scrub e-paper ghosting; the same scrub runs automatically every 6 hours.
 
-**Persistence:** the last view is saved to NVS (`Preferences`), so after a power
-loss the panel restores itself — a remembered ZIP boots straight back to that
-weather view; otherwise it boots to the clock.
+**Persistence:** the last view (and Wi-Fi credentials, if set via the recovery
+AP) is saved to flash — NVS/`Preferences` on ESP32, a small LittleFS JSON file
+on ESP8266 (same `prefs.getString/putString/...` call sites either way) — so
+after a power loss the panel restores itself: a remembered ZIP boots straight
+back to that weather view; otherwise it boots to the clock.
 
 **Controls & extras:**
 - **Physical button** (GPIO27 → GND) cycles Clock → Text → Weather → Station. Also
@@ -164,6 +176,68 @@ Station** on the page to put the live feed on the panel.
 > a normal server parses nothing. The handler works around it by parsing the raw
 > URL tail when no `?` is present — so no special path config is needed on the
 > console; just set `Server` to the ESP's IP.
+
+## ESP8266 (ESP-12E) port
+
+The whole project also runs on an ESP8266 (e.g. a NodeMCU-style dev board with
+an ESP-12E module) via the `esp12e` PlatformIO environment — same firmware,
+same features (weather, station push, PWA, OTA, AP-mode recovery), split from
+the ESP32 code by `#if defined(ESP32) / #elif defined(ESP8266)` throughout.
+
+```
+pio run -e esp12e -t upload           # first flash, over USB
+pio run -e esp12e_ota -t upload       # later updates, over Wi-Fi (after the first USB flash)
+```
+
+**Wiring (NodeMCU D-pin → GPIO).** Hardware SPI is fixed (SCK/MOSI below) and
+used automatically — don't wire anything to D6. **D8/GPIO15 is intentionally
+unused**: it must read LOW at boot, and an e-paper driver board's CS-idle
+pull-up on that line can prevent the ESP8266 from booting at all.
+
+| Driver board | NodeMCU pin | GPIO | Why this pin |
+|--------------|-------------|------|---------------|
+| SDI (MOSI)   | D7          | 13   | fixed HW SPI |
+| SCLK (CLK)   | D5          | 14   | fixed HW SPI |
+| CS           | D3          | 0    | output only — safe on a boot-strap pin |
+| D/C          | D4          | 2    | output only (also drives the onboard LED — cosmetic) |
+| RES          | D0          | 16   | no boot-strap meaning either way |
+| BUSY         | D2          | 4    | **input** from the display — needs a pin with no boot meaning |
+| Button       | D1          | 5    | input w/ pullup — same reasoning as BUSY |
+| Battery      | A0          | —    | the only ADC pin |
+| VCC / GND    | 3V3 / GND   | —    | |
+
+**Battery sense needs empirical calibration.** ESP8266 has one 0–1V ADC; a
+NodeMCU board's onboard divider ratio varies by vendor/clone, and this project
+adds its **own** 100k/100k divider on top (same physical design as the ESP32
+board, feeding A0 at roughly half the cell voltage — safe under any onboard
+divider variant). The combined ratio isn't knowable in advance: connect a
+charged cell through the divider, compare a multimeter reading to
+`analogRead(A0)` in `/status.json`'s `battRawMv`, and set
+`BATT_ESP8266_FULLSCALE_V` in the sketch to `(multimeter volts) / (raw/1023.0)`.
+
+**Libraries differ from the ESP32 build:** `ESPAsyncTCP` instead of `AsyncTCP`,
+`LittleFS` instead of `Preferences`, `ESP8266WiFi`/`ESP8266HTTPClient` instead
+of `WiFi`/`HTTPClient` — all handled by the `esp12e` env's `lib_deps` and the
+sketch's `#ifdef`s; nothing to configure by hand.
+
+**PROGMEM matters here.** The embedded web app, logo, and PWA icon are ~14 KB +
+12 KB + 23 KB constant blobs. ESP8266 only has ~80 KB of RAM total, and without
+`PROGMEM` (keeping them in flash instead of copying to RAM) the firmware simply
+won't link. If you regenerate `webapp.h` after editing the web app, keep the
+`PROGMEM` keyword — see `webapp/README.md`.
+
+**Static IP is ESP32-only, on purpose.** `secrets.h`'s `USE_STATIC_IP` block is
+guarded to `#if defined(ESP32)`, so building this board from the *same*
+`secrets.h` the deployed ESP32 unit uses can never make it claim the same
+address — it always gets a normal DHCP lease.
+
+> **Verified so far:** boot, Wi-Fi connect, the recovery AP fallback (forced by
+> pointing it at a nonexistent network), the web server/PWA/persistence (all
+> stable over USB and OTA flashes) — all on a board with **no e-paper panel
+> physically attached yet**. The wiring table above is the intended pin map,
+> not yet confirmed against a real panel; the pin choices *do* specifically
+> avoid the known ESP8266 boot-strap traps (see the "why this pin" column), but
+> give the display module itself a first test before trusting it blind.
 
 ## Panel / constructor notes
 

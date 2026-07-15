@@ -7,6 +7,74 @@ history**.
 
 ---
 
+## 2026-07-02 — ESP8266/ESP-12E port + Wi-Fi AP-mode recovery (both platforms)
+User attached an ESP8266EX (NodeMCU-style dev board, CP210x on COM3, 4MB flash,
+MAC `e0:98:06:a7:a4:0c`) and asked to (a) port the project to it and (b) add an
+AP-mode fallback when Wi-Fi can't connect. Did both; verified on real hardware
+(no panel wired yet — logic/network/persistence only).
+
+**AP-mode recovery (works on BOTH ESP32 and ESP8266, one shared code path):**
+- `connectWiFi(ssid, pass, timeoutMs)` replaces the old infinite
+  `while(!connected) delay()` loop — bounded (20s), so a bad/absent network
+  can't hang the device forever.
+- Boot now tries **stored** creds (from a prior `/wifisave`, in
+  Preferences/LittleFS) first, then the compiled `secrets.h` defaults.
+- If both fail: `startApFallback()` starts an open AP named
+  `EPaper-Setup-<MAC suffix>`, IP `192.168.4.1`, and **draws the AP name + IP
+  directly on the e-paper panel** (`drawApSetup()`) — recovery instructions are
+  visible without a serial monitor or router lookup.
+- New **Wi-Fi card** on the control page (always present, not just during
+  recovery) posts to `/wifisave`, which persists the new SSID/pass and
+  `ESP.restart()`s. Lets you change networks later without re-flashing.
+- **Verified live:** forced failure by temporarily pointing `secrets.h` at a
+  nonexistent SSID, reflashed — serial confirmed the bounded timeout, correct
+  AP name/IP, a clean single draw cycle (no reset-loop), and OTA still
+  starting in AP mode. Restored real creds after.
+
+**ESP8266 (ESP-12E) port — one shared `.ino`, `#if defined(ESP32)/#elif ESP8266`:**
+- New `[env:esp12e]` (`platform=espressif8266`, `board=nodemcuv2`) +
+  `[env:esp12e_ota]` in `platformio.ini`.
+- **Pin map redesigned for ESP8266's boot-strap constraints** (documented in
+  README): CS=D3/GPIO0, DC=D4/GPIO2 (outputs we drive, safe on boot pins),
+  RST=D0/GPIO16, BUSY=D2/GPIO4, Button=D1/GPIO5 (inputs — placed on pins with
+  no boot-strap meaning, since we don't control what those lines read at
+  power-on). **D8/GPIO15 deliberately avoided** — must be LOW at boot, and an
+  e-paper CS-idle pull-up there can brick the boot.
+- **Persistence:** `Preferences` has no ESP8266 equivalent → wrote `FilePrefs`,
+  a drop-in shim (same `getString/putString/getInt/...` surface) backed by one
+  JSON file on LittleFS. Every existing `prefs.*` call site works unchanged.
+- **Battery:** `analogReadMilliVolts()` is ESP32-only. ESP8266 has one 0-1V ADC;
+  kept the same external 100k/100k divider design (safe regardless of a
+  NodeMCU clone's unknown onboard divider) but the combined ratio needs
+  **empirical calibration** (`BATT_ESP8266_FULLSCALE_V`, documented in README)
+  — no formula can predict an unknown board's onboard divider.
+- **Libraries:** `ESPAsyncTCP` (not `AsyncTCP`), `LittleFS`, `ESP8266WiFi`/
+  `ESP8266HTTPClient`. `HTTPClient::setConnectTimeout()` doesn't exist on
+  ESP8266 — guarded `#if defined(ESP32)`.
+- **The big gotcha — RAM overflow at LINK time:** first ESP8266 build failed
+  (`.bss` doesn't fit in `dram0_0_seg`). `nm --size-sort` on the object file
+  showed why: `webapp_icon_192_png` (23KB), `WEBAPP_HTML` (13.5KB), and
+  `THREEOAKWOODS_BADGE_SVG` (11.8KB) — const blobs that ESP32 happily
+  flash-maps by default, ESP8266 does NOT without an explicit `PROGMEM`
+  attribute (ESP8266 has no unified flash/RAM address space the way ESP32
+  does). Added `PROGMEM` to all four large const declarations (icon.h, logo.h,
+  webapp.h, DEVICE_MANIFEST/DEVICE_SW) and switched their route handlers to
+  `send_P`/`beginResponse_P`. Fixed: RAM dropped to 54% with headroom.
+  **webapp/README.md's regen command updated to keep `PROGMEM`** — a plain
+  regen would silently reintroduce the overflow.
+- **Verified live (COM3, IP `192.168.12.206`):** clean boot + STA connect to
+  the real network, stable across 5 consecutive requests, `/app` (PWA) and
+  `/logo.svg` byte-for-byte intact (not garbled by the PROGMEM switch),
+  `/set` + LittleFS persistence survives a real reboot, and a full OTA flash
+  (`esp12e_ota`) succeeded and came back up stable.
+- ESP32 build re-verified unaffected by all of the above (PROGMEM is a no-op
+  there; it was already using `beginResponse_P` for the icon).
+- **Not yet tested:** the e-paper panel isn't physically wired to this board —
+  everything above is network/logic/persistence verification only. Pin map is
+  designed to avoid known boot traps but unconfirmed against a real display.
+
+---
+
 ## 2026-07-02 — Web app: "Show all data" for the backyard station
 Previously the firmware only kept 7 fields from the Ambient console's push
 (temp/humidity/wind/gust/rain-today/pressure/wind-dir) — everything else the

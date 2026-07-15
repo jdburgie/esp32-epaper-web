@@ -1,7 +1,9 @@
 // Auto-generated from webapp/index.html — served at /app.
 // Regenerate after editing the SPA (see webapp/README.md).
 #pragma once
-const char WEBAPP_HTML[] = R"WEBAPP(
+// PROGMEM: keeps this blob in flash instead of RAM (required on ESP8266,
+// harmless/no-op on ESP32). Served via send_P, which reads it correctly.
+const char WEBAPP_HTML[] PROGMEM = R"WEBAPP(
 <!DOCTYPE html>
 <html lang="en">
 <head>

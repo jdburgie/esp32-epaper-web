@@ -39,9 +39,12 @@ sends `Access-Control-Allow-Origin: *`.
 > **Regenerating the bundle:** the device serves `webapp.h` (auto-generated from
 > `index.html`). After editing the SPA, regenerate it from the repo root:
 > ```
-> { printf '#pragma once\nconst char WEBAPP_HTML[] = R"WEBAPP(\n'; cat webapp/index.html; printf '\n)WEBAPP";\n'; } > webapp.h
+> { printf '#pragma once\nconst char WEBAPP_HTML[] PROGMEM = R"WEBAPP(\n'; cat webapp/index.html; printf '\n)WEBAPP";\n'; } > webapp.h
 > ```
 > (prepend the two `// Auto-generated` comment lines if you like), then reflash.
+> **Keep the `PROGMEM` keyword** — this ~14KB blob overflows the ESP8266 port's
+> RAM without it (harmless/no-op on ESP32). The device reads it via `send_P`,
+> which is PROGMEM-aware.
 
 ## What it does
 - **Live status** every 5 s from `/status.json`: current screen, battery %/volts,

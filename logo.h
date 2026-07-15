@@ -1,7 +1,9 @@
 // Three Oak Woods acorn badge (vector).
 // Source: oaklink/branding/company/threeoakwoods-badge.svg — served at /logo.svg
 #pragma once
-const char THREEOAKWOODS_BADGE_SVG[] = R"TOW(
+// PROGMEM: keeps this ~12KB blob in flash instead of RAM (required on ESP8266,
+// harmless/no-op on ESP32). Served via beginResponse_P, which reads it correctly.
+const char THREEOAKWOODS_BADGE_SVG[] PROGMEM = R"TOW(
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 262 262" width="262" height="262" role="img" aria-label="Three Oak Woods badge">
   <title>Three Oak Woods — acorn &amp; oak-leaf badge (vector)</title>
   <g transform="translate(0.000000,262.000000) scale(0.100000,-0.100000)"

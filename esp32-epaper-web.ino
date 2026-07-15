@@ -19,13 +19,20 @@
  * updates, which is what prevents burn-in/ghosting.
  */
 
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#if defined(ESP32)
+  #include <WiFi.h>
+  #include <WiFiClientSecure.h>
+  #include <HTTPClient.h>
+  #include <Preferences.h>
+#elif defined(ESP8266)
+  #include <ESP8266WiFi.h>
+  #include <WiFiClientSecure.h>     // ESP8266 core wraps BearSSL; same .setInsecure() API
+  #include <ESP8266HTTPClient.h>
+  #include <LittleFS.h>
+#endif
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
-#include <Preferences.h>
 #include <time.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeSansBold9pt7b.h>
@@ -38,7 +45,7 @@
 
 // PWA manifest the DEVICE serves (absolute paths for the /app origin). The copy
 // in webapp/ uses relative paths for standalone/hosted use.
-const char DEVICE_MANIFEST[] = R"MANIFEST({
+const char DEVICE_MANIFEST[] PROGMEM = R"MANIFEST({
   "name":"Three Oak Woods E-Paper","short_name":"E-Paper","start_url":"/app","scope":"/",
   "display":"standalone","background_color":"#F5F1E6","theme_color":"#2C654B",
   "icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
@@ -46,7 +53,7 @@ const char DEVICE_MANIFEST[] = R"MANIFEST({
 })MANIFEST";
 
 // Service worker the device serves (only runs if the origin is secure; harmless on HTTP).
-const char DEVICE_SW[] = R"SWJS(const CACHE='epaper-dev-v1';
+const char DEVICE_SW[] PROGMEM = R"SWJS(const CACHE='epaper-dev-v1';
 const SHELL=['/app','/manifest.webmanifest','/icon-192.png','/logo.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});
@@ -63,13 +70,37 @@ const char* ssid     = SECRET_SSID;
 const char* password = SECRET_PASS;
 
 // ---- Pins ----
-#define EPD_CS    5
-#define EPD_DC    19
-#define EPD_RST   16
-#define EPD_BUSY  4
-#define PIN_BTN   27    // momentary button (to GND) — cycles screens
-#define PIN_BATT  34    // 18650 voltage via 2:1 divider (ADC1, input-only)
-#define BATT_RATIO 2.0  // divider multiplier (100k/100k = 2.0)
+#if defined(ESP32)
+  #define EPD_CS    5
+  #define EPD_DC    19
+  #define EPD_RST   16
+  #define EPD_BUSY  4
+  #define PIN_BTN   27    // momentary button (to GND) — cycles screens
+  #define PIN_BATT  34    // 18650 voltage via 2:1 divider (ADC1, input-only)
+  #define BATT_RATIO 2.0  // divider multiplier (100k/100k = 2.0)
+#elif defined(ESP8266)
+  // NodeMCU D-pin -> GPIO map. Hardware SPI (SCK=D5/GPIO14, MOSI=D7/GPIO13) is
+  // fixed and used automatically by GxEPD2 — not defined here. D8/GPIO15 is
+  // deliberately AVOIDED: it must read LOW at boot, and an e-paper driver
+  // board's CS-idle pull-up on that line can prevent the ESP8266 from booting.
+  // CS/DC/RST are outputs WE drive after boot (safe on D3/D4's boot-strap
+  // pins, since we don't touch them until setup() runs); BUSY (driven BY the
+  // display) and the button sit on D2/D1, which carry no boot-strap meaning.
+  #define EPD_CS    0     // D3 (GPIO0)  - output, onboard pull-up
+  #define EPD_DC    2     // D4 (GPIO2)  - output, onboard pull-up (shares the onboard LED)
+  #define EPD_RST   16    // D0 (GPIO16) - output, no boot-strap meaning
+  #define EPD_BUSY  4     // D2 (GPIO4)  - input from display, no boot-strap meaning
+  #define PIN_BTN   5     // D1 (GPIO5)  - input w/ pullup, no boot-strap meaning
+  #define PIN_BATT  A0    // the only analog pin on ESP8266
+  // Full-scale volts at raw=1023. ESP8266 has ONE 0-1V ADC; NodeMCU boards add
+  // an onboard divider of unknown-to-us ratio, and we add our OWN 100k/100k
+  // divider on top (same physical design as the ESP32 board) so the input to
+  // A0 never exceeds ~half the cell voltage regardless of board variant — safe
+  // by design, but the exact combined ratio must be CALIBRATED: connect a
+  // charged cell through the divider, compare a multimeter reading to
+  // analogRead(A0), and set this to (multimeter volts) / (raw/1023.0).
+  #define BATT_ESP8266_FULLSCALE_V 4.2
+#endif
 
 // ---- Panel: FPC-A002 2.13" 250x122, SSD1680 ----
 // If this comes up blank/garbled, try _213_B74, then _213_B73, then _213_B72.
@@ -79,12 +110,37 @@ GxEPD2_BW<GxEPD2_213_BN, GxEPD2_213_BN::HEIGHT> display(
 AsyncWebServer server(80);
 
 String currentText  = "Hello World!";
-String ipText       = "";   // set once Wi-Fi connects; shown bottom-left always
+String ipText       = "";   // set once Wi-Fi connects (or AP starts); shown bottom-left always
+bool apMode         = false; // true when running as a Wi-Fi-setup AP instead of on the real network
+
+#if defined(ESP8266)
+// Minimal Preferences-alike backed by one JSON file on LittleFS, so the rest of
+// the sketch (prefs.getString/putString/getInt/putInt/getBool/putBool) works
+// unchanged on both ESP32 (real NVS Preferences) and ESP8266 (this shim).
+// ESP8266 has no NVS/Preferences library — LittleFS + ArduinoJson is the
+// standard substitute, and handles the variable-length message text cleanly.
+class FilePrefs {
+  JsonDocument doc;
+  const char* path = "/prefs.json";
+  void load() { File f = LittleFS.open(path, "r"); if (f) { deserializeJson(doc, f); f.close(); } }
+  void save() { File f = LittleFS.open(path, "w"); if (f) { serializeJson(doc, f); f.close(); } }
+public:
+  void   begin(const char*, bool) { LittleFS.begin(); load(); }
+  String getString(const char* k, const String& def = "") { return doc[k] | def; }
+  void   putString(const char* k, const String& v)        { doc[k] = v; save(); }
+  int    getInt(const char* k, int def = 0)                { return doc[k] | def; }
+  void   putInt(const char* k, int v)                      { doc[k] = v; save(); }
+  bool   getBool(const char* k, bool def = false)           { return doc[k] | def; }
+  void   putBool(const char* k, bool v)                     { doc[k] = v; save(); }
+};
+FilePrefs prefs;
+#elif defined(ESP32)
+Preferences prefs;                  // NVS: remembers last mode + ZIP across power loss
+#endif
 
 // ---- Display mode + weather state ----
 enum DisplayMode { MODE_TEXT, MODE_WEATHER, MODE_STATION, MODE_CLOCK };
 DisplayMode mode    = MODE_CLOCK;   // clock is the default view
-Preferences prefs;                  // NVS: remembers last mode + ZIP across power loss
 int lastClockMin = -1;              // last minute drawn, so the clock redraws on change
 String weatherZip   = "";   // last ZIP requested
 String weatherText  = "";   // short summary, shown on the web page
@@ -188,8 +244,13 @@ String truncate(const String& s, uint8_t n) {
 
 // ---- Battery: read the 18650 via the divider; auto-detect if wired ----
 void readBattery() {
+#if defined(ESP32)
   uint32_t mv = analogReadMilliVolts(PIN_BATT);   // factory-calibrated on ESP32
   float v = mv * BATT_RATIO / 1000.0;
+#elif defined(ESP8266)
+  int raw = analogRead(PIN_BATT);                 // 0-1023, ESP8266's only ADC
+  float v = (raw / 1023.0) * BATT_ESP8266_FULLSCALE_V;
+#endif
   if (v > 2.8 && v < 4.5) {                        // plausible cell -> battery present
     battVolts = v;
     battPct   = constrain((int)round((v - 3.30) / (4.20 - 3.30) * 100.0), 0, 100);
@@ -362,7 +423,9 @@ bool fetchWeather() {
   WiFiClientSecure client;
   client.setInsecure();              // skip cert validation (home project)
   HTTPClient http;
-  http.setConnectTimeout(8000);
+#if defined(ESP32)
+  http.setConnectTimeout(8000);      // ESP8266's HTTPClient has no separate connect-timeout
+#endif
   http.setTimeout(8000);
   int code = -1; String body;
   if (http.begin(client, url)) {
@@ -582,6 +645,33 @@ void drawClock() {
   if (haveTime) lastClockMin = ti.tm_min;
 }
 
+// ---- AP fallback setup screen: shown when Wi-Fi couldn't be joined. Puts the
+//      recovery instructions directly on the panel (out-of-band, no serial
+//      monitor or router lookup needed). ----
+void drawApSetup(const String& apName, const String& apIp) {
+  display.setRotation(1);
+  display.setTextColor(GxEPD_BLACK);
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(5, 15);
+    display.print("Wi-Fi setup needed");
+    display.drawFastHLine(0, 20, display.width(), GxEPD_BLACK);
+
+    display.setCursor(5, 42);  display.print("Connect to Wi-Fi:");
+    display.setFont(&FreeSansBold12pt7b);
+    display.setCursor(5, 64);  display.print(apName);
+
+    display.setFont(&FreeSansBold9pt7b);
+    display.setCursor(5, 88);  display.print("Then browse to:");
+    display.setFont(&FreeSansBold12pt7b);
+    display.setCursor(5, 110); display.print(apIp);
+  } while (display.nextPage());
+  display.hibernate();
+}
+
 // ---- Persist the view (mode + ZIP) to NVS so it survives power loss ----
 void saveState() {
   prefs.putInt("mode", (int)mode);
@@ -688,6 +778,14 @@ String page() {
     "<p style='margin:0 0 8px;color:#5b5b50;font-size:.9em'>Live from your Ambient Weather console (" + stationSummary() + ").</p>"
     "<form action='/station' method='get'>"
     "<button type='submit'>Show Station</button></form></div>"
+    "<div class='card'><h2>Wi-Fi</h2>" +
+    (apMode ? "<p style='margin:0 0 8px;color:#b5451f;font-weight:700'>Setup mode \xE2\x80\x94 not connected to your network yet.</p>" : String("")) +
+    "<form action='/wifisave' method='get'>"
+    "<label>Network name (SSID)</label>"
+    "<input name='ssid' placeholder='Your Wi-Fi name' required>"
+    "<label>Password</label>"
+    "<input name='pass' type='password' placeholder='Wi-Fi password'>"
+    "<button type='submit' class='amber'>Save & reboot</button></form></div>"
     "<div style='display:flex;gap:10px'>"
     "<form action='/clear' method='get' style='flex:1'>"
     "<button type='submit' class='clear'>Clear Screen</button></form>"
@@ -700,6 +798,36 @@ String page() {
   return h;
 }
 
+// ---- Wi-Fi bring-up: try to join a network, bounded by a timeout (never hang
+//      forever the way a bare `while(!connected) delay()` loop would). ----
+bool connectWiFi(const String& s, const String& p, unsigned long timeoutMs) {
+  if (s.length() == 0) return false;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(s.c_str(), p.c_str());
+  Serial.print("Connecting to \"" + s + "\"");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    delay(400);
+    Serial.print(".");
+  }
+  Serial.println();
+  return WiFi.status() == WL_CONNECTED;
+}
+
+// ---- Fallback: couldn't join any known network -> start a recovery AP so the
+//      device is still reachable (instead of going dark). Browse to the AP's
+//      IP and use the Wi-Fi card on the page to save new credentials. ----
+void startApFallback() {
+  apMode = true;
+  WiFi.mode(WIFI_AP);
+  String apName = "EPaper-Setup-" + WiFi.macAddress().substring(9);
+  apName.replace(":", "");
+  WiFi.softAP(apName.c_str());   // open network (no password) — simplest recovery path
+  ipText = WiFi.softAPIP().toString();
+  Serial.println("Could not join Wi-Fi. Recovery AP: \"" + apName + "\" -> http://" + ipText);
+  drawApSetup(apName, ipText);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -707,45 +835,67 @@ void setup() {
   pinMode(PIN_BTN, INPUT_PULLUP);   // momentary button to GND
   readBattery();                    // so the first draw shows battery if wired
 
-  WiFi.mode(WIFI_STA);
-#ifdef USE_STATIC_IP
-  // Static IP — this gateway (T-Mobile 5G) has no DHCP reservation option.
-  if (!WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
-                   IPAddress(STATIC_DNS1), IPAddress(STATIC_DNS2)))
-    Serial.println("Static IP config failed; falling back to DHCP");
-#endif
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
-  Serial.println();
-  ipText = WiFi.localIP().toString();   // bottom-left label needs this
-  Serial.print("Ready. Browse to: http://");
-  Serial.println(ipText);
-
-  configTzTime(TZ_INFO, "pool.ntp.org", "time.nist.gov");  // start NTP for the clock
-
-  // Restore last view from NVS: a saved ZIP defaults back to weather, a saved
-  // message restores the text screen, otherwise the default clock view.
+  // Load persisted state EARLY: stored Wi-Fi creds (set via the AP-mode setup
+  // form, if it was ever used) take priority over the compiled secrets.h
+  // defaults, alongside the remembered mode/ZIP/message/auto-cycle.
   prefs.begin("epaper", false);
+  String storedSsid = prefs.getString("wifi_ssid", "");
+  String storedPass = prefs.getString("wifi_pass", "");
   weatherZip  = prefs.getString("zip", "");
   currentText = prefs.getString("text", currentText);   // remembered message box text
   autoCycle   = prefs.getBool("cycle", false);
   int savedMode = prefs.getInt("mode", MODE_CLOCK);
-  if (savedMode == MODE_WEATHER && weatherZip.length()) {
-    mode = MODE_WEATHER;
-    fetchAndDrawWeather();
-    lastWxFetch = millis();
-  } else if (savedMode == MODE_TEXT) {
-    mode = MODE_TEXT;
-    drawText(currentText);
+
+#if defined(ESP32) && defined(USE_STATIC_IP)
+  // Static IP — this gateway (T-Mobile 5G) has no DHCP reservation option.
+  // Skipped if Wi-Fi has since been reconfigured via the AP-mode setup form
+  // (a different network may not want this address/gateway).
+  if (storedSsid.length() == 0) {
+    WiFi.mode(WIFI_STA);
+    if (!WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
+                     IPAddress(STATIC_DNS1), IPAddress(STATIC_DNS2)))
+      Serial.println("Static IP config failed; falling back to DHCP");
+  }
+#endif
+
+  // Try stored creds first (AP-mode setup), then the compiled secrets.h
+  // defaults — each bounded by a timeout so a bad/absent network can't hang
+  // the device forever. If both fail, fall back to a recovery AP.
+  bool connected = false;
+  if (storedSsid.length()) connected = connectWiFi(storedSsid, storedPass, 20000);
+  if (!connected)          connected = connectWiFi(ssid, password, 20000);
+
+  if (connected) {
+    ipText = WiFi.localIP().toString();   // bottom-left label needs this
+    Serial.println("Ready. Browse to: http://" + ipText);
+
+    configTzTime(TZ_INFO, "pool.ntp.org", "time.nist.gov");  // start NTP for the clock
+
+    // Restore last view: a saved ZIP defaults back to weather, a saved
+    // message restores the text screen, otherwise the default clock view.
+    if (savedMode == MODE_WEATHER && weatherZip.length()) {
+      mode = MODE_WEATHER;
+      fetchAndDrawWeather();
+      lastWxFetch = millis();
+    } else if (savedMode == MODE_TEXT) {
+      mode = MODE_TEXT;
+      drawText(currentText);
+    } else {
+      mode = MODE_CLOCK;
+      drawClock();
+    }
   } else {
-    mode = MODE_CLOCK;
-    drawClock();
+    startApFallback();   // draws the recovery screen itself
   }
   lastDeep = millis();     // start the deep-refresh timer from boot
 
   // ---- OTA: flash new firmware over Wi-Fi (no USB) ----
+#if defined(ESP32)
   ArduinoOTA.setHostname("epaper");          // shows up as epaper.local / port 3232
+#elif defined(ESP8266)
+  ArduinoOTA.setHostname("epaper8266");      // distinct hostname: avoids an mDNS
+                                              // collision if the ESP32 unit is also live
+#endif
 #ifdef OTA_PASSWORD
   ArduinoOTA.setPassword(OTA_PASSWORD);      // optional, set in secrets.h
 #endif
@@ -753,7 +903,7 @@ void setup() {
   ArduinoOTA.onEnd([]()   { Serial.println("OTA: done, rebooting"); });
   ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", e); });
   ArduinoOTA.begin();
-  Serial.println("OTA ready (espota @ epaper / " + ipText + ":3232)");
+  Serial.println("OTA ready on port 3232" + (apMode ? String(" (AP mode)") : (" @ " + ipText)));
 
   // Allow the standalone web app (different origin) to read the API.
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
@@ -763,21 +913,21 @@ void setup() {
   });
 
   server.on("/logo.svg", HTTP_GET, [](AsyncWebServerRequest* req){
-    AsyncWebServerResponse* r = req->beginResponse(200, "image/svg+xml", THREEOAKWOODS_BADGE_SVG);
+    AsyncWebServerResponse* r = req->beginResponse_P(200, "image/svg+xml", THREEOAKWOODS_BADGE_SVG);
     r->addHeader("Cache-Control", "max-age=86400");
     req->send(r);
   });
 
   server.on("/app", HTTP_GET, [](AsyncWebServerRequest* req){
-    req->send(200, "text/html", WEBAPP_HTML);   // the bundled web app (PWA)
+    req->send_P(200, "text/html", WEBAPP_HTML);   // the bundled web app (PWA)
   });
 
   // ---- PWA assets so the app installs to the home screen ----
   server.on("/manifest.webmanifest", HTTP_GET, [](AsyncWebServerRequest* req){
-    req->send(200, "application/manifest+json", DEVICE_MANIFEST);
+    req->send_P(200, "application/manifest+json", DEVICE_MANIFEST);
   });
   server.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest* req){
-    AsyncWebServerResponse* r = req->beginResponse(200, "application/javascript", DEVICE_SW);
+    AsyncWebServerResponse* r = req->beginResponse_P(200, "application/javascript", DEVICE_SW);
     r->addHeader("Service-Worker-Allowed", "/");
     req->send(r);
   });
@@ -848,6 +998,25 @@ void setup() {
   server.on("/clear", HTTP_GET, [](AsyncWebServerRequest* req){
     pending = P_CLEAR;
     req->redirect("/");
+  });
+
+  // Save new Wi-Fi credentials (from the Wi-Fi card, or the AP-mode recovery
+  // page) and reboot to try them. Works both on the normal network and in AP
+  // fallback mode — same route either way.
+  server.on("/wifisave", HTTP_GET, [](AsyncWebServerRequest* req){
+    if (!req->hasParam("ssid") || req->getParam("ssid")->value().length() == 0) {
+      req->send(400, "text/plain", "Missing network name");
+      return;
+    }
+    String s = req->getParam("ssid")->value();
+    String p = req->hasParam("pass") ? req->getParam("pass")->value() : "";
+    prefs.putString("wifi_ssid", s);
+    prefs.putString("wifi_pass", p);
+    req->send(200, "text/html",
+      "<html><body style='font-family:sans-serif;text-align:center;padding:60px 20px'>"
+      "<h2>Saved</h2><p>Rebooting and joining \"" + s + "\"&hellip;</p></body></html>");
+    delay(300);
+    ESP.restart();
   });
 
   // Ingest pushes from the Ambient Weather console's "Customized" upload.
@@ -942,7 +1111,11 @@ void setup() {
     d["battValid"] = battValid;
     d["battPct"]   = battPct;
     d["battVolts"] = battVolts;
-    d["battRawMv"] = analogReadMilliVolts(PIN_BATT);   // live GPIO34 reading (divider debug)
+#if defined(ESP32)
+    d["battRawMv"] = analogReadMilliVolts(PIN_BATT);   // live ADC reading (divider debug)
+#elif defined(ESP8266)
+    d["battRawMv"] = (int)((analogRead(PIN_BATT) / 1023.0) * BATT_ESP8266_FULLSCALE_V * 1000);
+#endif
     JsonObject w = d["weather"].to<JsonObject>();
     w["zip"] = weatherZip; w["valid"] = wx.valid; w["city"] = wx.city;
     w["temp"] = wx.temp; w["feels"] = wx.feels; w["humidity"] = wx.humidity;
