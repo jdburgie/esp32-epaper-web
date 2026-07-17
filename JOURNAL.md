@@ -7,7 +7,7 @@ history**.
 
 ---
 
-## ESP8266 board takes over `.50` (ESP32 unit retired)
+## 2026-07-15 — ESP8266 board takes over `.50` (ESP32 unit retired)
 User took the ESP32 unit at `.50` down and designated the ESP8266/ESP-12E board
 (previously DHCP at `192.168.12.206`) as its replacement — **on purpose**, not
 a mistake to catch. This directly reverses a deliberate safety guard from the
@@ -578,9 +578,18 @@ key for weather mode.
 
 ## Open follow-ups (not started)
 
-- **TODO: e-paper board (`24:0a:c4`, .50) panel** — wire/reseat the Inland 2.13"
-  panel to it (re-wiring was pending); if BUSY stays non-responsive, replace the
-  panel. (OWM key on this board now fixed; no IP clash — sprinkler is on .51.)
+- **TODO (2026-07-15): wire the e-paper panel to the deployed board.** The
+  deployed device at `.50` is now the **ESP8266/ESP-12E** board (the old ESP32
+  unit `24:0a:c4` is retired) — panel has never been physically wired to it.
+  Use the ESP8266 pin map in README's "ESP8266 (ESP-12E) port" section (avoids
+  the boot-strap traps, esp. D8/GPIO15). Display output is completely untested
+  on this board.
+- **TODO (2026-07-15): battery sense on the ESP8266 board** — divider not wired
+  yet, and even once wired it needs **empirical per-board calibration**
+  (`BATT_ESP8266_FULLSCALE_V`, no fixed ESP32-style formula works on ESP8266's
+  ADC). See README.
+- ~~TODO: e-paper board (`24:0a:c4`, .50) panel~~ **MOOT** — that board is
+  retired; superseded by the ESP8266 panel-wiring TODO above.
 - ~~TODO (2026-06-25): add weather views to the web page~~ **DONE** — SPA Forecast
   + Backyard station cards; `/status.json` enriched. Web app now served at `/app`.
 - **TODO (2026-06-25): "remember test"** — read as: test the new button + battery
