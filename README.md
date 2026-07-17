@@ -226,10 +226,14 @@ sketch's `#ifdef`s; nothing to configure by hand.
 won't link. If you regenerate `webapp.h` after editing the web app, keep the
 `PROGMEM` keyword — see `webapp/README.md`.
 
-**Static IP is ESP32-only, on purpose.** `secrets.h`'s `USE_STATIC_IP` block is
-guarded to `#if defined(ESP32)`, so building this board from the *same*
-`secrets.h` the deployed ESP32 unit uses can never make it claim the same
-address — it always gets a normal DHCP lease.
+**Static IP: this board is now the deployed device.** `secrets.h`'s
+`USE_STATIC_IP` block used to be guarded to `#if defined(ESP32)` specifically so
+an ESP8266 build could never collide with the ESP32 unit's static `.50`. That
+guard was removed once the ESP32 unit was retired — **this ESP8266/ESP-12E
+board now holds `.50`** (see JOURNAL.md). If you ever bring the old ESP32 board
+back online while building from this same `secrets.h`, it will *also* try to
+claim `.50` and collide with this one — give it a different address (or a
+different `secrets.h`) first.
 
 > **Verified so far:** boot, Wi-Fi connect, the recovery AP fallback (forced by
 > pointing it at a nonexistent network), the web server/PWA/persistence (all

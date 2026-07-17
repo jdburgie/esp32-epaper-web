@@ -7,6 +7,39 @@ history**.
 
 ---
 
+## ESP8266 board takes over `.50` (ESP32 unit retired)
+User took the ESP32 unit at `.50` down and designated the ESP8266/ESP-12E board
+(previously DHCP at `192.168.12.206`) as its replacement — **on purpose**, not
+a mistake to catch. This directly reverses a deliberate safety guard from the
+ESP8266 port work: `secrets.h`'s `USE_STATIC_IP` block was `#if defined(ESP32)`-
+only specifically so the ESP8266 board could never accidentally collide with
+the ESP32 unit's `.50`. With the ESP32 unit actually gone, that guard no longer
+served its purpose, so:
+
+- **`esp32-epaper-web.ino`:** static-IP guard widened from
+  `#if defined(ESP32) && defined(USE_STATIC_IP)` to `#if defined(USE_STATIC_IP)`
+  — both platforms now honor it. (Verified `ESP8266WiFi.h`'s `WiFi` object has
+  the same `.mode()`/`.config(ip,gw,subnet,dns1,dns2)` signature as ESP32's, so
+  no other code changes were needed.)
+- **`platformio.ini`:** `esp12e_ota` `upload_port` → `192.168.12.50` (was the
+  DHCP `.206`). `esp32dev_ota` `upload_port` defused to a placeholder
+  (`CHANGE_ME_ESP32_DEVICE_IP`) — it used to point at `.50`, which is now the
+  ESP8266 board; OTA has no architecture check, so blindly firing an
+  ESP32-compiled binary at `.50` over espota would very likely **brick the
+  ESP8266 board** (incompatible flash layout/bootloader). Left as a deliberate
+  landmine defusal, not just a stale value.
+- **README:** the "Static IP is ESP32-only, on purpose" section rewritten to
+  reflect the new reality and warn about bringing the old ESP32 board back
+  online with the same `secrets.h` (it would also try to claim `.50`).
+- Built `esp12e` clean, flashed via **OTA to `.206`** (its address *before* this
+  change took effect), and verified after reboot: `status.json` now reports
+  `"ip":"192.168.12.50"`, `.206` no longer responds, backyard station data
+  flowing (88°F, live push). Battery still reads invalid on this board — sense
+  divider not wired/calibrated yet (see README's ESP8266 battery-calibration
+  note).
+
+---
+
 ## 2026-07-02 — ESP8266/ESP-12E port + Wi-Fi AP-mode recovery (both platforms)
 User attached an ESP8266EX (NodeMCU-style dev board, CP210x on COM3, 4MB flash,
 MAC `e0:98:06:a7:a4:0c`) and asked to (a) port the project to it and (b) add an

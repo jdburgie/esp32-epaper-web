@@ -846,10 +846,17 @@ void setup() {
   autoCycle   = prefs.getBool("cycle", false);
   int savedMode = prefs.getInt("mode", MODE_CLOCK);
 
-#if defined(ESP32) && defined(USE_STATIC_IP)
+#if defined(USE_STATIC_IP)
   // Static IP — this gateway (T-Mobile 5G) has no DHCP reservation option.
   // Skipped if Wi-Fi has since been reconfigured via the AP-mode setup form
   // (a different network may not want this address/gateway).
+  //
+  // Was ESP32-only for a while, specifically so an ESP8266 build could never
+  // accidentally collide with the deployed ESP32 unit's .50. That's no longer
+  // the situation: the ESP32 unit was retired and THIS board (ESP8266/ESP-12E)
+  // now takes over .50 as the deployed device — see JOURNAL.md. If you bring
+  // the old ESP32 board back online with this same secrets.h, IT will also try
+  // to claim .50 and collide with this one; give it a different address first.
   if (storedSsid.length() == 0) {
     WiFi.mode(WIFI_STA);
     if (!WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
